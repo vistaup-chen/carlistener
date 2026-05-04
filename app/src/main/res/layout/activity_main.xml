@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="车辆监听器配置"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="16dp" />
+
+        <!-- 关键字配置 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="短信关键字（多个关键字用逗号分隔）："
+            android:textSize="16sp"
+            android:layout_marginTop="8dp" />
+
+        <EditText
+            android:id="@+id/keywordEditText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="例如：违章,罚款,扣分"
+            android:inputType="text"
+            android:layout_marginTop="4dp" />
+
+        <!-- 通知监听包名配置 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="监听应用包名（默认交管12123）："
+            android:textSize="16sp"
+            android:layout_marginTop="16dp" />
+
+        <EditText
+            android:id="@+id/notificationPackageEditText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="com.tmri.app.main"
+            android:hint="com.tmri.app.main"
+            android:inputType="text"
+            android:layout_marginTop="4dp" />
+
+        <!-- 权限按钮 -->
+        <Button
+            android:id="@+id/smsPermissionButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="授予短信权限"
+            android:layout_marginTop="16dp" />
+
+        <Button
+            android:id="@+id/notificationPermissionButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="启用通知监听"
+            android:layout_marginTop="8dp" />
+
+        <!-- 操作按钮 -->
+        <Button
+            android:id="@+id/saveButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="保存配置"
+            android:layout_marginTop="16dp" />
+
+        <Button
+            android:id="@+id/testRingButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="测试响铃"
+            android:layout_marginTop="8dp" />
+
+        <!-- 状态显示 -->
+        <TextView
+            android:id="@+id/statusTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="状态："
+            android:textSize="14sp"
+            android:layout_marginTop="16dp"
+            android:background="#F0F0F0"
+            android:padding="12dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="使用说明：\n1. 点击'授予短信权限'允许应用读取短信\n2. 点击'启用通知监听'在设置中启用通知访问权限\n3. 设置关键字后，收到包含关键字的短信或通知时会最大音量响铃"
+            android:textSize="12sp"
+            android:layout_marginTop="16dp"
+            android:textColor="#666666" />
+
+    </LinearLayout>
+
+</ScrollView>
