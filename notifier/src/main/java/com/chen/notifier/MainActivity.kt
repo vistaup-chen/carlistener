@@ -122,8 +122,8 @@ class MainActivity : AppCompatActivity() {
 
         builder
             .setContentTitle("交管12123")
-            .setContentText("您的车辆有违章记录，罚款200元，请尽快处理")
-            .setTicker("交管12123: 您的车辆有违章记录")
+            .setContentText("您的小型新能源汽车浙A123456于2026年4月2日18时18分在xxx_xxx未按规定停放已被记录，请立即驶离，未及时驶离的，将依法予以处罚，谢谢配合！")
+            .setTicker("违停驶离提醒")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)

@@ -3,8 +3,12 @@ package com.chen.carlistener
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.MediaPlayer
@@ -22,9 +26,11 @@ class RingtoneService : Service() {
 
     companion object {
         private const val TAG = "RingtoneService"
-        private const val RING_DURATION = 30000L // 响铃30秒
+        private const val RING_DURATION = 30000L
         private const val NOTIFICATION_CHANNEL_ID = "ringtone_channel"
         private const val NOTIFICATION_ID = 1001
+        const val ACTION_STOP = "com.chen.carlistener.STOP_RINGTONE"
+        const val ACTION_RINGTONE_STOPPED = "com.chen.carlistener.RINGTONE_STOPPED"
     }
 
     private var mediaPlayer: MediaPlayer? = null
@@ -33,16 +39,31 @@ class RingtoneService : Service() {
     private var savedVolume: Int = -1
     private var savedRingerMode: Int = -1
 
+    // 用 BroadcastReceiver 接收停止指令，比 PendingIntent 启动 Service 更可靠
+    private val stopReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == ACTION_STOP) {
+                Log.d(TAG, "BroadcastReceiver 收到停止指令")
+                stopRinging()
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "RingtoneService 创建")
         createNotificationChannel()
+        val filter = IntentFilter(ACTION_STOP)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(stopReceiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(stopReceiver, filter)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "收到启动命令: ${intent?.getStringExtra("action")}")
 
-        // Android 8+ 必须立即调用 startForeground，否则系统会强制停止服务
         startForeground(NOTIFICATION_ID, buildForegroundNotification())
 
         val action = intent?.getStringExtra("action")
@@ -51,7 +72,6 @@ class RingtoneService : Service() {
         when (action) {
             "ring", "test" -> {
                 Log.d(TAG, "开始响铃，消息: $message")
-                // 先彻底停止之前的响铃（不调用 stopSelf）
                 releaseMedia()
                 startRinging()
             }
@@ -76,7 +96,7 @@ class RingtoneService : Service() {
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "用于保持响铃服务运行"
-                setSound(null, null) // 通知本身不发声，避免和铃声冲突
+                setSound(null, null)
             }
             val nm = getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(channel)
@@ -84,6 +104,14 @@ class RingtoneService : Service() {
     }
 
     private fun buildForegroundNotification(): Notification {
+        // 停止响铃按钮 —— 发广播，比 PendingIntent.getService 更可靠
+        val stopIntent = Intent(ACTION_STOP)
+        stopIntent.setPackage(packageName)
+        val stopPendingIntent = PendingIntent.getBroadcast(
+            this, 0, stopIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, NOTIFICATION_CHANNEL_ID)
         } else {
@@ -94,6 +122,7 @@ class RingtoneService : Service() {
             .setContentTitle("车辆监听器")
             .setContentText("正在响铃提醒...")
             .setSmallIcon(android.R.drawable.ic_lock_silent_mode_off)
+            .addAction(android.R.drawable.ic_media_pause, "停止响铃", stopPendingIntent)
             .build()
     }
 
@@ -101,14 +130,11 @@ class RingtoneService : Service() {
         try {
             val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
 
-            // 保存原始状态，响铃结束后恢复
             savedRingerMode = audioManager.ringerMode
             savedVolume = audioManager.getStreamVolume(AudioManager.STREAM_RING)
 
-            // 强制解除静音，使铃声能正常播放
             audioManager.ringerMode = AudioManager.RINGER_MODE_NORMAL
 
-            // 设置铃声音量为最大
             val maxRingVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_RING)
             audioManager.setStreamVolume(
                 AudioManager.STREAM_RING,
@@ -117,7 +143,6 @@ class RingtoneService : Service() {
             )
             Log.d(TAG, "铃声音量已设置为最大: $maxRingVolume")
 
-            // 使用默认手机铃声，回退到通知音
             val ringtoneUri =
                 RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
                     ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
@@ -132,8 +157,6 @@ class RingtoneService : Service() {
 
             mediaPlayer = MediaPlayer().apply {
                 setDataSource(applicationContext, ringtoneUri)
-
-                // Android 5+ 使用 AudioAttributes 替代已废弃的 setAudioStreamType
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                     setAudioAttributes(
                         AudioAttributes.Builder()
@@ -145,7 +168,6 @@ class RingtoneService : Service() {
                     @Suppress("DEPRECATION")
                     setAudioStreamType(AudioManager.STREAM_RING)
                 }
-
                 isLooping = true
                 prepare()
                 start()
@@ -153,18 +175,13 @@ class RingtoneService : Service() {
 
             Log.d(TAG, "MediaPlayer 开始播放")
 
-            // 启动振动
             startVibration()
 
-            // 30 秒后自动停止
             timer = Timer()
             timer?.schedule(object : TimerTask() {
                 override fun run() {
                     Log.d(TAG, "30秒超时，自动停止响铃")
                     stopRinging()
-                    // 广播通知 MainActivity 更新状态
-                    val stopIntent = Intent("com.chen.carlistener.RINGTONE_STOPPED")
-                    sendBroadcast(stopIntent)
                 }
             }, RING_DURATION)
 
@@ -199,7 +216,6 @@ class RingtoneService : Service() {
         }
     }
 
-    /** 仅释放媒体资源，不停止服务 */
     private fun releaseMedia() {
         try {
             timer?.cancel()
@@ -223,7 +239,6 @@ class RingtoneService : Service() {
         Log.d(TAG, "停止响铃")
         releaseMedia()
 
-        // 恢复原来的铃声模式和音量
         try {
             val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
             if (savedRingerMode >= 0) {
@@ -238,6 +253,10 @@ class RingtoneService : Service() {
             Log.e(TAG, "恢复音量失败", e)
         }
 
+        // 广播通知 MainActivity 更新状态
+        val stoppedIntent = Intent(ACTION_RINGTONE_STOPPED)
+        sendBroadcast(stoppedIntent)
+
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -245,6 +264,9 @@ class RingtoneService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "RingtoneService 销毁")
+        try {
+            unregisterReceiver(stopReceiver)
+        } catch (_: Exception) {}
         releaseMedia()
     }
 

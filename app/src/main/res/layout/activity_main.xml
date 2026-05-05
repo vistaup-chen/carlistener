@@ -29,7 +29,7 @@
             android:id="@+id/keywordEditText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="例如：违章,罚款,扣分"
+            android:hint="12123,驶离,处罚,交警"
             android:inputType="text"
             android:layout_marginTop="4dp" />
 
@@ -50,16 +50,33 @@
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
             android:background="@android:drawable/edit_text"
-            android:text="未选择（默认：交管12123）"
+            android:text="交管12123（com.tmri.app.main）"
             android:textColor="#666666"
             android:layout_marginTop="4dp" />
 
-        <Button
-            android:id="@+id/selectAppButton"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="选择应用"
-            android:layout_marginTop="8dp" />
+            android:orientation="horizontal"
+            android:layout_marginTop="8dp">
+
+            <Button
+                android:id="@+id/selectAppButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="选择应用"
+                android:layout_marginEnd="4dp" />
+
+            <Button
+                android:id="@+id/quick12123Button"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="一键监听12123"
+                android:layout_marginStart="4dp" />
+
+        </LinearLayout>
 
         <!-- 权限按钮 -->
         <Button

@@ -7,7 +7,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
-import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -22,17 +21,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var keywordEditText: EditText
     private lateinit var selectedAppTextView: TextView
     private lateinit var selectAppButton: Button
+    private lateinit var quick12123Button: Button
     private lateinit var statusTextView: TextView
     private lateinit var smsPermissionButton: Button
     private lateinit var notificationPermissionButton: Button
     private lateinit var testRingButton: Button
 
     private var isRinging = false
-    
-    // 广播接收器，用于监听响铃停止事件
+
     private val ringtoneStopReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == "com.chen.carlistener.RINGTONE_STOPPED") {
+            if (intent?.action == RingtoneService.ACTION_RINGTONE_STOPPED) {
                 isRinging = false
                 updateTestRingButton()
                 Toast.makeText(this@MainActivity, "响铃已停止", Toast.LENGTH_SHORT).show()
@@ -44,77 +43,91 @@ class MainActivity : AppCompatActivity() {
         const val PREFS_NAME = "CarListenerPrefs"
         const val KEY_KEYWORDS = "keywords"
         const val KEY_NOTIFICATION_PACKAGE = "notification_package"
-        const val DEFAULT_NOTIFICATION_PACKAGE = "com.tmri.app.main" // 交管12123的包名
+        const val DEFAULT_NOTIFICATION_PACKAGE = "com.tmri.app.main"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // 注册广播接收器
-        val filter = IntentFilter("com.chen.carlistener.RINGTONE_STOPPED")
+        val filter = IntentFilter(RingtoneService.ACTION_RINGTONE_STOPPED)
         registerReceiver(ringtoneStopReceiver, filter)
 
         keywordEditText = findViewById(R.id.keywordEditText)
         selectedAppTextView = findViewById(R.id.selectedAppTextView)
         selectAppButton = findViewById(R.id.selectAppButton)
+        quick12123Button = findViewById(R.id.quick12123Button)
         statusTextView = findViewById(R.id.statusTextView)
         smsPermissionButton = findViewById(R.id.smsPermissionButton)
         notificationPermissionButton = findViewById(R.id.notificationPermissionButton)
 
-        // 加载保存的配置
         loadPreferences()
 
-        // 短信权限按钮点击事件
         smsPermissionButton.setOnClickListener {
             checkAndRequestSmsPermission()
         }
 
-        // 通知监听权限按钮点击事件
         notificationPermissionButton.setOnClickListener {
             openNotificationListenerSettings()
         }
 
-        // 选择应用按钮
         selectAppButton.setOnClickListener {
             showAppSelectionDialog()
         }
 
-        // 保存配置按钮
+        quick12123Button.setOnClickListener {
+            val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            prefs.edit().putString(KEY_NOTIFICATION_PACKAGE, DEFAULT_NOTIFICATION_PACKAGE).apply()
+            updateSelectedAppDisplay(DEFAULT_NOTIFICATION_PACKAGE)
+            updateStatus()
+            Toast.makeText(this, "已设为监听交管12123", Toast.LENGTH_SHORT).show()
+        }
+
         findViewById<Button>(R.id.saveButton).setOnClickListener {
             savePreferences()
             Toast.makeText(this, "配置已保存", Toast.LENGTH_SHORT).show()
             updateStatus()
         }
 
-        // 测试响铃按钮
         testRingButton = findViewById(R.id.testRingButton)
         testRingButton.setOnClickListener {
-            testRingtone()
+            if (isRinging) {
+                stopRingtone()
+            } else {
+                startRingtone("test")
+                Toast.makeText(this, "开始测试响铃（30秒后自动停止）", Toast.LENGTH_LONG).show()
+            }
         }
 
-        // 检查权限状态
         updateStatus()
         updateTestRingButton()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // 每次回到前台检查服务是否还在运行，同步按钮状态
+        isRinging = isServiceRunning()
+        updateTestRingButton()
+        updateStatus()
+    }
+
+    private fun isServiceRunning(): Boolean {
+        val am = getSystemService(ACTIVITY_SERVICE) as? android.app.ActivityManager ?: return false
+        return am.getRunningServices(Int.MAX_VALUE)
+            .any { it.service.className == RingtoneService::class.java.name }
     }
 
     private fun loadPreferences() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val keywords = prefs.getString(KEY_KEYWORDS, "")
         val notificationPackage = prefs.getString(KEY_NOTIFICATION_PACKAGE, DEFAULT_NOTIFICATION_PACKAGE)
-
         keywordEditText.setText(keywords)
         updateSelectedAppDisplay(notificationPackage ?: DEFAULT_NOTIFICATION_PACKAGE)
     }
 
     private fun updateSelectedAppDisplay(packageName: String) {
-        val displayText = if (packageName == DEFAULT_NOTIFICATION_PACKAGE) {
-            "未选择（默认：交管12123）"
-        } else {
-            val appLabel = getAppLabel(packageName)
-            "$appLabel（$packageName）"
-        }
-        selectedAppTextView.text = displayText
+        val appLabel = getAppLabel(packageName)
+        selectedAppTextView.text = "$appLabel（$packageName）"
     }
 
     private fun getAppLabel(packageName: String): String {
@@ -129,17 +142,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun savePreferences() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val editor = prefs.edit()
-        editor.putString(KEY_KEYWORDS, keywordEditText.text.toString())
-        val currentPackage = prefs.getString(KEY_NOTIFICATION_PACKAGE, DEFAULT_NOTIFICATION_PACKAGE)
-        editor.putString(KEY_NOTIFICATION_PACKAGE, currentPackage)
-        editor.apply()
+        prefs.edit()
+            .putString(KEY_KEYWORDS, keywordEditText.text.toString())
+            .putString(KEY_NOTIFICATION_PACKAGE,
+                prefs.getString(KEY_NOTIFICATION_PACKAGE, DEFAULT_NOTIFICATION_PACKAGE))
+            .apply()
     }
 
     private fun checkAndRequestSmsPermission() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
-            
             ActivityCompat.requestPermissions(
                 this,
                 arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS),
@@ -169,7 +181,6 @@ class MainActivity : AppCompatActivity() {
             pm.getInstalledApplications(PackageManager.GET_META_DATA)
         }
 
-        // 过滤掉系统应用（可选），按应用名排序
         val userApps = installedApps
             .filter { it.flags and ApplicationInfo.FLAG_SYSTEM == 0 || it.packageName == DEFAULT_NOTIFICATION_PACKAGE }
             .sortedBy { pm.getApplicationLabel(it).toString().lowercase() }
@@ -202,43 +213,42 @@ class MainActivity : AppCompatActivity() {
         val status = StringBuilder("状态：\n")
         status.append("短信权限：${if (hasSmsPermission) "✓ 已授予" else "✗ 未授予"}\n")
         status.append("通知监听：${if (hasNotificationPermission) "✓ 已启用" else "✗ 未启用"}\n")
-        
+
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val keywords = prefs.getString(KEY_KEYWORDS, "")
         val notificationPackage = prefs.getString(KEY_NOTIFICATION_PACKAGE, DEFAULT_NOTIFICATION_PACKAGE) ?: DEFAULT_NOTIFICATION_PACKAGE
         val appLabel = getAppLabel(notificationPackage)
         status.append("关键字：${if (keywords.isNullOrEmpty()) "未设置" else keywords}\n")
-        status.append("监听应用：$appLabel")
+        status.append("监听应用：$appLabel（$notificationPackage）")
 
         statusTextView.text = status.toString()
     }
 
     private fun isNotificationListenerEnabled(): Boolean {
-        val packageName = packageName
         val flat = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
         return flat?.contains(packageName) == true
     }
 
-    private fun testRingtone() {
+    private fun startRingtone(action: String) {
         val intent = Intent(this, RingtoneService::class.java)
-        if (isRinging) {
-            // 正在响铃 → 停止
-            intent.putExtra("action", "stop")
-            isRinging = false
-            startService(intent)
-            Toast.makeText(this, "已停止响铃", Toast.LENGTH_SHORT).show()
+        intent.putExtra("action", action)
+        isRinging = true
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
         } else {
-            // 未响铃 → 开始测试
-            intent.putExtra("action", "test")
-            isRinging = true
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(intent)
-            } else {
-                startService(intent)
-            }
-            Toast.makeText(this, "开始测试响铃（30秒后自动停止）", Toast.LENGTH_LONG).show()
+            startService(intent)
         }
         updateTestRingButton()
+    }
+
+    private fun stopRingtone() {
+        // 发广播停止，和通知栏按钮走同一通道
+        val intent = Intent(RingtoneService.ACTION_STOP)
+        intent.setPackage(packageName)
+        sendBroadcast(intent)
+        isRinging = false
+        updateTestRingButton()
+        Toast.makeText(this, "已停止响铃", Toast.LENGTH_SHORT).show()
     }
 
     private fun updateTestRingButton() {
@@ -257,8 +267,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        updateStatus()
+    override fun onDestroy() {
+        super.onDestroy()
+        unregisterReceiver(ringtoneStopReceiver)
     }
 }
