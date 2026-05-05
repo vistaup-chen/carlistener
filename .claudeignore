@@ -1,0 +1,66 @@
+# === Android 编译产物 ===
+build/
+app/build/
+notifier/build/
+.cxx/
+.externalNativeBuild/
+captures/
+obj/
+libs/
+
+# === Gradle ===
+.gradle/
+gradle/wrapper/dists/
+
+# === IDE ===
+*.iml
+.idea/
+.vscode/
+
+# === 本地配置 ===
+local.properties
+.claude/settings.local.json
+
+# === Git ===
+.git/
+
+# === 二进制/媒体（读了也没用） ===
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.svg
+*.ico
+*.bmp
+*.mp4
+*.mov
+*.wav
+*.mp3
+*.jar
+*.aar
+*.so
+*.dex
+*.apk
+*.har
+*.p7b
+*.cer
+
+# === 临时/系统文件 ===
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# === 缓存 ===
+cache/
+__pycache__/
+node_modules/
+
+# === 项目文档 ===
+BUILD.md
+CHECKLIST.md
+PROJECT_SUMMARY.md
+README.md
+install.sh
+install.bat
