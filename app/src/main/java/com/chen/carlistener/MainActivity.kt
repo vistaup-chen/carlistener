@@ -5,12 +5,14 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.*
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -18,7 +20,8 @@ import androidx.core.content.ContextCompat
 class MainActivity : AppCompatActivity() {
 
     private lateinit var keywordEditText: EditText
-    private lateinit var notificationPackageEditText: EditText
+    private lateinit var selectedAppTextView: TextView
+    private lateinit var selectAppButton: Button
     private lateinit var statusTextView: TextView
     private lateinit var smsPermissionButton: Button
     private lateinit var notificationPermissionButton: Button
@@ -53,7 +56,8 @@ class MainActivity : AppCompatActivity() {
         registerReceiver(ringtoneStopReceiver, filter)
 
         keywordEditText = findViewById(R.id.keywordEditText)
-        notificationPackageEditText = findViewById(R.id.notificationPackageEditText)
+        selectedAppTextView = findViewById(R.id.selectedAppTextView)
+        selectAppButton = findViewById(R.id.selectAppButton)
         statusTextView = findViewById(R.id.statusTextView)
         smsPermissionButton = findViewById(R.id.smsPermissionButton)
         notificationPermissionButton = findViewById(R.id.notificationPermissionButton)
@@ -69,6 +73,11 @@ class MainActivity : AppCompatActivity() {
         // 通知监听权限按钮点击事件
         notificationPermissionButton.setOnClickListener {
             openNotificationListenerSettings()
+        }
+
+        // 选择应用按钮
+        selectAppButton.setOnClickListener {
+            showAppSelectionDialog()
         }
 
         // 保存配置按钮
@@ -95,14 +104,33 @@ class MainActivity : AppCompatActivity() {
         val notificationPackage = prefs.getString(KEY_NOTIFICATION_PACKAGE, DEFAULT_NOTIFICATION_PACKAGE)
 
         keywordEditText.setText(keywords)
-        notificationPackageEditText.setText(notificationPackage)
+        updateSelectedAppDisplay(notificationPackage ?: DEFAULT_NOTIFICATION_PACKAGE)
+    }
+
+    private fun updateSelectedAppDisplay(packageName: String) {
+        val displayText = if (packageName == DEFAULT_NOTIFICATION_PACKAGE) {
+            "未选择（默认：交管12123）"
+        } else {
+            val appLabel = getAppLabel(packageName)
+            "$appLabel（$packageName）"
+        }
+        selectedAppTextView.text = displayText
+    }
+
+    private fun getAppLabel(packageName: String): String {
+        return try {
+            val pm = packageManager
+            val appInfo = pm.getApplicationInfo(packageName, 0)
+            pm.getApplicationLabel(appInfo).toString()
+        } catch (e: Exception) {
+            packageName
+        }
     }
 
     private fun savePreferences() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val editor = prefs.edit()
         editor.putString(KEY_KEYWORDS, keywordEditText.text.toString())
-        editor.putString(KEY_NOTIFICATION_PACKAGE, notificationPackageEditText.text.toString())
         editor.apply()
     }
 
@@ -130,6 +158,41 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun showAppSelectionDialog() {
+        val pm = packageManager
+        val installedApps = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION")
+            pm.getInstalledApplications(PackageManager.GET_META_DATA)
+        }
+
+        // 过滤掉系统应用（可选），按应用名排序
+        val userApps = installedApps
+            .filter { it.flags and ApplicationInfo.FLAG_SYSTEM == 0 || it.packageName == DEFAULT_NOTIFICATION_PACKAGE }
+            .sortedBy { pm.getApplicationLabel(it).toString().lowercase() }
+
+        val items = userApps.map { appInfo ->
+            val label = pm.getApplicationLabel(appInfo).toString()
+            val pkg = appInfo.packageName
+            if (pkg == DEFAULT_NOTIFICATION_PACKAGE) "$label（交管12123）" else label
+        }.toTypedArray()
+
+        val selectedPackage = userApps.map { it.packageName }.toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("选择要监听的应用")
+            .setItems(items) { _, which ->
+                val chosen = selectedPackage[which]
+                val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                prefs.edit().putString(KEY_NOTIFICATION_PACKAGE, chosen).apply()
+                updateSelectedAppDisplay(chosen)
+                updateStatus()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
     private fun updateStatus() {
         val hasSmsPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED
         val hasNotificationPermission = isNotificationListenerEnabled()
@@ -140,9 +203,10 @@ class MainActivity : AppCompatActivity() {
         
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val keywords = prefs.getString(KEY_KEYWORDS, "")
-        val notificationPackage = prefs.getString(KEY_NOTIFICATION_PACKAGE, DEFAULT_NOTIFICATION_PACKAGE)
+        val notificationPackage = prefs.getString(KEY_NOTIFICATION_PACKAGE, DEFAULT_NOTIFICATION_PACKAGE) ?: DEFAULT_NOTIFICATION_PACKAGE
+        val appLabel = getAppLabel(notificationPackage)
         status.append("关键字：${if (keywords.isNullOrEmpty()) "未设置" else keywords}\n")
-        status.append("监听应用：${notificationPackage ?: DEFAULT_NOTIFICATION_PACKAGE}")
+        status.append("监听应用：$appLabel")
 
         statusTextView.text = status.toString()
     }

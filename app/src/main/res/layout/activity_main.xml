@@ -33,22 +33,33 @@
             android:inputType="text"
             android:layout_marginTop="4dp" />
 
-        <!-- 通知监听包名配置 -->
+        <!-- 通知监听应用选择 -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="监听应用包名（默认交管12123）："
+            android:text="监听应用（点击选择）："
             android:textSize="16sp"
             android:layout_marginTop="16dp" />
 
-        <EditText
-            android:id="@+id/notificationPackageEditText"
+        <TextView
+            android:id="@+id/selectedAppTextView"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="com.tmri.app.main"
-            android:hint="com.tmri.app.main"
-            android:inputType="text"
+            android:minHeight="48dp"
+            android:gravity="center_vertical"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:background="@android:drawable/edit_text"
+            android:text="未选择（默认：交管12123）"
+            android:textColor="#666666"
             android:layout_marginTop="4dp" />
+
+        <Button
+            android:id="@+id/selectAppButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="选择应用"
+            android:layout_marginTop="8dp" />
 
         <!-- 权限按钮 -->
         <Button
@@ -94,7 +105,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="使用说明：\n1. 点击'授予短信权限'允许应用读取短信\n2. 点击'启用通知监听'在设置中启用通知访问权限\n3. 设置关键字后，收到包含关键字的短信或通知时会最大音量响铃"
+            android:text="使用说明：\n1. 点击「选择应用」选取要监听的通知应用\n2. 点击「授予短信权限」允许应用读取短信\n3. 点击「启用通知监听」在设置中启用通知访问权限\n4. 设置关键字后，收到包含关键字的短信或通知时会最大音量响铃"
             android:textSize="12sp"
             android:layout_marginTop="16dp"
             android:textColor="#666666" />
