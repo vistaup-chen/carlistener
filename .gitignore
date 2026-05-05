@@ -15,3 +15,5 @@
 .cxx
 local.properties
 .claude/settings.local.json
+/app/build
+/notifier/build

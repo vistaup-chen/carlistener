@@ -131,6 +131,8 @@ class MainActivity : AppCompatActivity() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val editor = prefs.edit()
         editor.putString(KEY_KEYWORDS, keywordEditText.text.toString())
+        val currentPackage = prefs.getString(KEY_NOTIFICATION_PACKAGE, DEFAULT_NOTIFICATION_PACKAGE)
+        editor.putString(KEY_NOTIFICATION_PACKAGE, currentPackage)
         editor.apply()
     }
 
