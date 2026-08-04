@@ -8,9 +8,10 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.BaseAdapter
 import android.widget.TextView
+import com.github.promeg.pinyinhelper.Pinyin
 
 /**
- * 应用列表适配器 — 支持字母分组头
+ * 应用列表适配器 — 支持字母分组头（中文转拼音首字母）
  */
 class AppListAdapter(
     private val context: Context,
@@ -40,11 +41,9 @@ class AppListAdapter(
         val items = mutableListOf<ListItem>()
         var lastLetter = ' '
 
-        // 第一个 app 特殊处理（12123 置顶）
         for (app in appList) {
             val label = pm.getApplicationLabel(app).toString()
-            val firstChar = label.firstOrNull()?.uppercaseChar() ?: '#'
-            val letter = if (firstChar in 'A'..'Z') firstChar else '#'
+            val letter = getFirstLetter(label)
 
             if (letter != lastLetter) {
                 items.add(ListItem(TYPE_HEADER, letter))
@@ -56,6 +55,21 @@ class AppListAdapter(
         allItems = items
         filteredItems = items
         notifyDataSetChanged()
+    }
+
+    private fun getFirstLetter(text: String): Char {
+        val first = text.firstOrNull() ?: return '#'
+        if (first in 'A'..'Z') return first
+        if (first in 'a'..'z') return first.uppercaseChar()
+        if (first in '0'..'9') return '#'
+
+        // 中文用 TinyPinyin 转拼音首字母
+        if (Pinyin.isChinese(first)) {
+            val c = Pinyin.toPinyin(first)[0].uppercaseChar()
+            if (c in 'A'..'Z') return c
+        }
+
+        return '#'
     }
 
     fun filter(query: String) {
@@ -72,13 +86,11 @@ class AppListAdapter(
                     false
                 }
             }
-            // 重建带头部的列表
             val withHeaders = mutableListOf<ListItem>()
             var lastLetter = ' '
             for (item in filtered) {
                 val label = pm.getApplicationLabel(item.appInfo!!).toString()
-                val firstChar = label.firstOrNull()?.uppercaseChar() ?: '#'
-                val letter = if (firstChar in 'A'..'Z') firstChar else '#'
+                val letter = getFirstLetter(label)
                 if (letter != lastLetter) {
                     withHeaders.add(ListItem(TYPE_HEADER, letter))
                     lastLetter = letter
@@ -90,12 +102,10 @@ class AppListAdapter(
         notifyDataSetChanged()
     }
 
-    /** 返回当前列表中出现的字母（用于侧边栏高亮） */
     fun getAvailableLetters(): Set<Char> {
         return filteredItems.filter { it.type == TYPE_HEADER }.map { it.letter }.toSet()
     }
 
-    /** 滚动到指定字母位置，返回索引 */
     fun getLetterPosition(letter: Char): Int {
         val upper = letter.uppercaseChar()
         return filteredItems.indexOfFirst {

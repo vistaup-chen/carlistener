@@ -126,6 +126,20 @@
             android:text="电池优化白名单"
             android:layout_marginTop="8dp" />
 
+        <Button
+            android:id="@+id/notifSettingsButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="通知设置"
+            android:layout_marginTop="8dp" />
+
+        <Button
+            android:id="@+id/fullScreenSettingsButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="全屏弹窗设置"
+            android:layout_marginTop="8dp" />
+
         <!-- 操作按钮 -->
         <Button
             android:id="@+id/saveButton"

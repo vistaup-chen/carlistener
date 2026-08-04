@@ -31,6 +31,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var testRingButton: Button
     private lateinit var autoStartButton: Button
     private lateinit var batteryOptButton: Button
+    private lateinit var notifSettingsButton: Button
+    private lateinit var fullScreenSettingsButton: Button
 
     private var isRinging = false
 
@@ -73,6 +75,8 @@ class MainActivity : AppCompatActivity() {
         notificationPermissionButton = findViewById(R.id.notificationPermissionButton)
         autoStartButton = findViewById(R.id.autoStartButton)
         batteryOptButton = findViewById(R.id.batteryOptButton)
+        notifSettingsButton = findViewById(R.id.notifSettingsButton)
+        fullScreenSettingsButton = findViewById(R.id.fullScreenSettingsButton)
 
         loadPreferences()
 
@@ -90,6 +94,14 @@ class MainActivity : AppCompatActivity() {
 
         batteryOptButton.setOnClickListener {
             openBatteryOptimizationSettings()
+        }
+
+        notifSettingsButton.setOnClickListener {
+            openAppNotificationSettings()
+        }
+
+        fullScreenSettingsButton.setOnClickListener {
+            openFullScreenIntentSettings()
         }
 
         selectAppButton.setOnClickListener {
@@ -202,12 +214,13 @@ class MainActivity : AppCompatActivity() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
             permissionsToRequest.add(Manifest.permission.READ_SMS)
         }
-        // 用 areNotificationsEnabled 检查，比 checkSelfPermission 更准确
+        // 双重检查：areNotificationsEnabled + checkSelfPermission（小米兼容）
         val nmCheck = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
-        if (!nmCheck.areNotificationsEnabled()) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
-            }
+        val hasNotifPerm = nmCheck.areNotificationsEnabled()
+                || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                    && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
+        if (!hasNotifPerm && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
         }
 
         if (permissionsToRequest.isNotEmpty()) {
@@ -245,7 +258,10 @@ class MainActivity : AppCompatActivity() {
             missing.add("读取短信 (READ_SMS)")
         }
         val nm = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
-        if (!nm.areNotificationsEnabled()) {
+        val hasNotif = nm.areNotificationsEnabled()
+                || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                    && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
+        if (!hasNotif) {
             missing.add("通知权限 (POST_NOTIFICATIONS)")
         }
         if (Build.VERSION.SDK_INT >= 34 && !nm.canUseFullScreenIntent()) {
@@ -269,10 +285,13 @@ class MainActivity : AppCompatActivity() {
             .setMessage("以下权限未开启，可能影响功能：\n\n${missing.joinToString("\n") { "• $it" }}\n\n点击「去设置」逐个开启。")
             .setPositiveButton("去设置") { _, _ ->
                 val nm2 = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+                val hasNotif2 = nm2.areNotificationsEnabled()
+                        || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                            && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
                 when {
                     ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED
                         || ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED -> checkAndRequestSmsPermission()
-                    !nm2.areNotificationsEnabled() -> openAppNotificationSettings()
+                    !hasNotif2 -> openAppNotificationSettings()
                     Build.VERSION.SDK_INT >= 34 && !nm2.canUseFullScreenIntent() -> openFullScreenIntentSettings()
                     !isNotificationListenerEnabled() -> openNotificationListenerSettings()
                     !(getSystemService(POWER_SERVICE) as PowerManager).isIgnoringBatteryOptimizations(packageName) -> openBatteryOptimizationSettings()
@@ -300,19 +319,13 @@ class MainActivity : AppCompatActivity() {
      * 打开本应用的通知设置页（用于授予 POST_NOTIFICATIONS 权限）
      */
     private fun openAppNotificationSettings() {
+        // 直接用应用详情页，小米/华为/OPPO 都支持，用户从这里进通知设置
         try {
-            val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-            intent.putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+            intent.data = Uri.parse("package:$packageName")
             startActivity(intent)
-        } catch (e: Exception) {
-            // 降级：打开应用详情页
-            try {
-                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                intent.data = Uri.parse("package:$packageName")
-                startActivity(intent)
-            } catch (_: Exception) {
-                Toast.makeText(this, "无法打开通知设置", Toast.LENGTH_SHORT).show()
-            }
+        } catch (_: Exception) {
+            Toast.makeText(this, "无法打开应用设置", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -453,44 +466,56 @@ class MainActivity : AppCompatActivity() {
     private fun buildLetterSidebar(sidebar: LinearLayout, adapter: AppListAdapter, listView: ListView) {
         sidebar.removeAllViews()
         val available = adapter.getAvailableLetters()
+
+        // 防止 ListView 抢触摸事件
+        sidebar.setOnTouchListener { _, _ -> true }
+
+        // 有 # 分组时加入
+        if ('#' in available) {
+            sidebar.addView(createLetterView("#", adapter, listView))
+        }
+
         for (c in 'A'..'Z') {
-            val tv = TextView(this).apply {
-                text = c.toString()
-                textSize = 10f
-                gravity = android.view.Gravity.CENTER
-                setPadding(0, 2, 0, 2)
-                setTextColor(if (c in available) 0xFF333333.toInt() else 0xFFBBBBBB.toInt())
+            if (c !in available) continue
+            sidebar.addView(createLetterView(c.toString(), adapter, listView))
+        }
+    }
+
+    private fun createLetterView(letter: String, adapter: AppListAdapter, listView: ListView): TextView {
+        return TextView(this).apply {
+            text = letter
+            textSize = 11f
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, 4, 0, 4)
+            setTextColor(0xFF333333.toInt())
+            isClickable = true
+            setOnClickListener {
+                val pos = adapter.getLetterPosition(letter[0])
+                if (pos >= 0) listView.smoothScrollToPosition(pos)
             }
-            if (c in available) {
-                tv.setOnClickListener {
-                    val pos = adapter.getLetterPosition(c)
-                    if (pos >= 0) listView.smoothScrollToPosition(pos)
-                }
-            }
-            sidebar.addView(tv)
         }
     }
 
     private fun updateStatus() {
         val hasReceiveSms = ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED
         val hasReadSms = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
+        // 小米上 areNotificationsEnabled 可能不准确，同时用 checkSelfPermission 兜底
         val nm = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
         val hasPostNotif = nm.areNotificationsEnabled()
-        // 全屏通知权限（Android 14+）
-        val hasFullScreen = if (Build.VERSION.SDK_INT >= 34) {
-            nm.canUseFullScreenIntent()
-        } else true
+                || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                    && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
+        val hasFullScreen = if (Build.VERSION.SDK_INT >= 34) nm.canUseFullScreenIntent() else true
         val hasNotificationPermission = isNotificationListenerEnabled()
         val pm = getSystemService(POWER_SERVICE) as PowerManager
         val hasBatteryOpt = pm.isIgnoringBatteryOptimizations(packageName)
 
         val status = StringBuilder("状态：\n")
-        status.append("接收短信：${if (hasReceiveSms) "✓" else "✗"}\n")
-        status.append("读取短信：${if (hasReadSms) "✓" else "✗"}\n")
-        status.append("通知权限：${if (hasPostNotif) "✓" else "✗"}\n")
-        status.append("全屏弹窗：${if (hasFullScreen) "✓" else "✗"}\n")
+        status.append("接收短信：${if (hasReceiveSms) "✓" else "✗ 未授予"}\n")
+        status.append("读取短信：${if (hasReadSms) "✓" else "✗ 未授予"}\n")
+        status.append("通知权限：${if (hasPostNotif) "✓" else "✗ 点击下方按钮设置"}\n")
+        status.append("全屏弹窗：${if (hasFullScreen) "✓" else "✗ 点击下方按钮设置"}\n")
         status.append("通知监听：${if (hasNotificationPermission) "✓ 已启用" else "✗ 未启用"}\n")
-        status.append("电池优化白名单：${if (hasBatteryOpt) "✓ 已加入" else "✗ 未加入"}\n")
+        status.append("电池优化：${if (hasBatteryOpt) "✓ 已加入" else "✗ 未加入"}")
 
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val keywords = prefs.getString(KEY_KEYWORDS, DEFAULT_KEYWORDS)

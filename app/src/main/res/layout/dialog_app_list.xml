@@ -31,12 +31,15 @@
         <!-- A-Z 侧边栏 -->
         <LinearLayout
             android:id="@+id/letterSidebar"
-            android:layout_width="24dp"
+            android:layout_width="32dp"
             android:layout_height="match_parent"
             android:layout_alignParentEnd="true"
             android:orientation="vertical"
             android:gravity="center"
-            android:background="#22000000" />
+            android:clickable="true"
+            android:focusable="true"
+            android:background="#33000000"
+            android:elevation="8dp" />
 
     </RelativeLayout>
 

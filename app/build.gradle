@@ -38,4 +38,5 @@ dependencies {
     implementation libs.androidx.core.ktx
     implementation libs.androidx.appcompat
     implementation libs.material
+    implementation 'com.github.promeg:tinypinyin:2.0.3'
 }
