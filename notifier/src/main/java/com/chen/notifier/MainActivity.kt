@@ -1,13 +1,17 @@
 package com.chen.notifier
 
 import android.Manifest
+import android.app.AlarmManager
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.os.CountDownTimer
+import android.os.SystemClock
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.Toast
@@ -22,23 +26,31 @@ class MainActivity : AppCompatActivity() {
     private lateinit var button: Button
     private lateinit var smsButton: Button
 
+    companion object {
+        const val ACTION_SEND_NOTIFICATION = "com.chen.notifier.SEND_NOTIFICATION"
+        const val ACTION_SEND_SMS = "com.chen.notifier.SEND_SMS"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // 获取状态栏高度，手动设置 padding
+        val statusBarHeight = getStatusBarHeight()
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(48, 48, 48, 48)
-            fitsSystemWindows = true
+            setBackgroundColor(Color.WHITE)
+            setPadding(48, 48 + statusBarHeight, 48, 48)
         }
 
         button = Button(this).apply {
             text = "发送测试通知"
-            textSize = 14f
+            textSize = 16f
+            minHeight = 120
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                bottomMargin = 24
+                bottomMargin = 32
             }
             setOnClickListener {
                 if (pending) return@setOnClickListener
@@ -49,12 +61,13 @@ class MainActivity : AppCompatActivity() {
 
         smsButton = Button(this).apply {
             text = "发送测试短信"
-            textSize = 14f
+            textSize = 16f
+            minHeight = 120
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                bottomMargin = 24
+                bottomMargin = 0
             }
             setOnClickListener {
                 if (pending) return@setOnClickListener
@@ -67,12 +80,49 @@ class MainActivity : AppCompatActivity() {
         setContentView(layout)
     }
 
+    private fun getStatusBarHeight(): Int {
+        val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 0
+    }
+
     private fun startCountdown(type: String) {
         pending = true
         val targetButton = if (type == "短信") smsButton else button
         targetButton.isEnabled = false
         Toast.makeText(this, "5秒后发送测试$type", Toast.LENGTH_SHORT).show()
 
+        // 使用 AlarmManager 确保息屏后也能发送（核心修复）
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val sendAction = if (type == "短信") ACTION_SEND_SMS else ACTION_SEND_NOTIFICATION
+        val sendIntent = Intent(sendAction).apply {
+            `package` = packageName
+        }
+        val sendPendingIntent = PendingIntent.getBroadcast(
+            this, if (type == "短信") 1 else 0, sendIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Android 12+ 需要检查 exact alarm 权限
+        val canScheduleExactAlarms = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                alarmManager.canScheduleExactAlarms()
+
+        if (canScheduleExactAlarms) {
+            alarmManager.setExactAndAllowWhileIdle(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                SystemClock.elapsedRealtime() + 5000,
+                sendPendingIntent
+            )
+        } else {
+            // 降级方案：使用 allowWhileIdle（不精确但息屏能工作）
+            alarmManager.setAndAllowWhileIdle(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                SystemClock.elapsedRealtime() + 5000,
+                sendPendingIntent
+            )
+            Toast.makeText(this, "请授予闹钟权限以获得精确延迟", Toast.LENGTH_LONG).show()
+        }
+
+        // UI 倒计时 + 兜底直接调用（如果 AlarmManager 失败）
         countDownTimer?.cancel()
         countDownTimer = object : CountDownTimer(5000, 1000) {
             override fun onTick(millisUntilFinished: Long) {
@@ -81,15 +131,9 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onFinish() {
-                if (type == "短信") {
-                    sendTestSms()
-                } else {
-                    sendTestNotification()
-                }
-                pending = false
-                targetButton.isEnabled = true
-                targetButton.text = if (type == "短信") "发送测试短信" else "发送测试通知"
-                Toast.makeText(this@MainActivity, "${type}已发送", Toast.LENGTH_SHORT).show()
+                // 兜底：如果 AlarmManager 没触发，这里也会发送
+                if (type == "短信") sendTestSms() else sendTestNotification()
+                resetButtonState(targetButton, type)
             }
         }.start()
     }
@@ -134,7 +178,6 @@ class MainActivity : AppCompatActivity() {
     private fun sendTestNotification() {
         val nm = getSystemService(NotificationManager::class.java)
 
-        // 点击通知打开本应用
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -161,6 +204,13 @@ class MainActivity : AppCompatActivity() {
             .setDefaults(android.app.Notification.DEFAULT_ALL)
 
         nm.notify(NotifierApp.NOTIFICATION_ID, builder.build())
+    }
+
+    private fun resetButtonState(targetButton: Button, type: String) {
+        pending = false
+        targetButton.isEnabled = true
+        targetButton.text = if (type == "短信") "发送测试短信" else "发送测试通知"
+        Toast.makeText(this, "${type}已发送", Toast.LENGTH_SHORT).show()
     }
 
     override fun onDestroy() {
