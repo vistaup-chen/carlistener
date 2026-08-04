@@ -155,7 +155,6 @@ class RingtoneService : Service() {
             .setContentText("正在响铃提醒...")
             .setSmallIcon(android.R.drawable.ic_lock_silent_mode_off)
             .addAction(android.R.drawable.ic_media_pause, "停止响铃", stopPendingIntent)
-            .setOngoing(true)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .build()
     }

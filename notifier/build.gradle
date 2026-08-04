@@ -17,8 +17,22 @@ android {
         versionName "1.0"
     }
 
+    // 签名文件：carlistener.jks | 别名：vistaup | 密码：vistaup123456 | 有效期：99999天
+    signingConfigs {
+        vistaup {
+            storeFile file('../carlistener.jks')
+            storePassword 'vistaup123456'
+            keyAlias 'vistaup'
+            keyPassword 'vistaup123456'
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig signingConfigs.vistaup
+        }
         release {
+            signingConfig signingConfigs.vistaup
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }

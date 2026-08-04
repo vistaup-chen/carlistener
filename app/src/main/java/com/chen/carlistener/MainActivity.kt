@@ -385,7 +385,10 @@ class MainActivity : AppCompatActivity() {
             .map { it.activityInfo.applicationInfo }
             .distinctBy { it.packageName }
             .filter { it.packageName != NOTIFIER_PACKAGE }
-            .sortedBy { pm.getApplicationLabel(it).toString().lowercase() }
+            .sortedWith(compareBy(
+                { AppListAdapter.getFirstLetter(pm.getApplicationLabel(it).toString()) },
+                { pm.getApplicationLabel(it).toString().lowercase() }
+            ))
 
         val app12123 = try {
             pm.getApplicationInfo(DEFAULT_NOTIFICATION_PACKAGE, 0)
@@ -466,9 +469,6 @@ class MainActivity : AppCompatActivity() {
     private fun buildLetterSidebar(sidebar: LinearLayout, adapter: AppListAdapter, listView: ListView) {
         sidebar.removeAllViews()
         val available = adapter.getAvailableLetters()
-
-        // 防止 ListView 抢触摸事件
-        sidebar.setOnTouchListener { _, _ -> true }
 
         // 有 # 分组时加入
         if ('#' in available) {
