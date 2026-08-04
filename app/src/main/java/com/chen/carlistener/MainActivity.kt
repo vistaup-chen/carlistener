@@ -381,6 +381,11 @@ class MainActivity : AppCompatActivity() {
         val mainIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val resolveInfos = pm.queryIntentActivities(mainIntent, 0)
 
+        // 读取当前已选包名，用于置顶
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val currentSelected = prefs.getString(KEY_NOTIFICATION_PACKAGE, DEFAULT_NOTIFICATION_PACKAGE) ?: ""
+        val selectedSet = currentSelected.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toMutableSet()
+
         val appList = resolveInfos
             .map { it.activityInfo.applicationInfo }
             .distinctBy { it.packageName }
@@ -400,21 +405,20 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "未安装交管12123，请先安装后再选择", Toast.LENGTH_LONG).show()
         }
 
-        val finalList = if (app12123 != null) {
-            val rest = appList.filter { it.packageName != DEFAULT_NOTIFICATION_PACKAGE }
-            listOf(app12123) + rest
-        } else {
-            appList
+        // 最终列表：交管12123 永远置顶 → 已选应用（按字母排）→ 未选应用（按字母排）
+        val finalList = mutableListOf<ApplicationInfo>()
+        if (app12123 != null) {
+            finalList.add(app12123)
         }
+        val selectedApps = appList.filter { it.packageName in selectedSet && it.packageName != DEFAULT_NOTIFICATION_PACKAGE }
+        val unselectedApps = appList.filter { it.packageName !in selectedSet && it.packageName != DEFAULT_NOTIFICATION_PACKAGE }
+        finalList.addAll(selectedApps)
+        finalList.addAll(unselectedApps)
 
         if (finalList.isEmpty()) {
             Toast.makeText(this, "未找到已安装应用", Toast.LENGTH_SHORT).show()
             return
         }
-
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val currentSelected = prefs.getString(KEY_NOTIFICATION_PACKAGE, DEFAULT_NOTIFICATION_PACKAGE) ?: ""
-        val selectedSet = currentSelected.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toMutableSet()
 
         // 加载自定义布局
         val dialogView = layoutInflater.inflate(R.layout.dialog_app_list, null)
@@ -487,7 +491,7 @@ class MainActivity : AppCompatActivity() {
             textSize = 11f
             gravity = android.view.Gravity.CENTER
             setPadding(0, 4, 0, 4)
-            setTextColor(0xFF333333.toInt())
+            setTextColor(0xFFFFFFFF.toInt())
             isClickable = true
             setOnClickListener {
                 val pos = adapter.getLetterPosition(letter[0])

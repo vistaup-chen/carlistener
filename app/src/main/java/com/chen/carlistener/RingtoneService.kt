@@ -75,6 +75,9 @@ class RingtoneService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "收到启动命令: ${intent?.getStringExtra("action")}")
 
+        // 第一时间获取 WakeLock，防止启动过程中设备休眠
+        acquireWakeLock()
+
         startForeground(NOTIFICATION_ID, buildForegroundNotification())
 
         val action = intent?.getStringExtra("action")
@@ -129,6 +132,9 @@ class RingtoneService : Service() {
             ).apply {
                 description = "用于保持响铃服务运行"
                 setSound(null, null)
+                // 振动模式：立即振动 800ms，暂停 400ms，循环
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 800, 400, 800, 400, 800)
             }
             val nm = getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(channel)
@@ -155,6 +161,7 @@ class RingtoneService : Service() {
             .setContentText("正在响铃提醒...")
             .setSmallIcon(android.R.drawable.ic_lock_silent_mode_off)
             .addAction(android.R.drawable.ic_media_pause, "停止响铃", stopPendingIntent)
+            .setVibrate(longArrayOf(0, 800, 400, 800, 400, 800))
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .build()
     }
@@ -286,13 +293,13 @@ class RingtoneService : Service() {
     @Suppress("DEPRECATION")
     private fun acquireWakeLock() {
         val pm = getSystemService(POWER_SERVICE) as PowerManager
-        // FULL_WAKE_LOCK + ACQUIRE_CAUSES_WAKEUP：响铃时点亮屏幕
+        // SCREEN_BRIGHT_WAKE_LOCK + ACQUIRE_CAUSES_WAKEUP：兼容 Android 14+，可靠亮屏
         wakeLock = pm.newWakeLock(
-            PowerManager.FULL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+            PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE,
             "CarListener::RingtoneWakeLock"
         ).apply {
             setReferenceCounted(false)
-            acquire(RING_DURATION + 5000L)
+            acquire(RING_DURATION + 10000L)
         }
         Log.d(TAG, "WakeLock 已获取（含亮屏）")
     }

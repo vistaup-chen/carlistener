@@ -10,6 +10,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:hint="搜索应用..."
+        android:textColorHint="#FF666666"
         android:inputType="text"
         android:padding="12dp"
         android:layout_margin="8dp"
@@ -38,7 +39,7 @@
             android:gravity="center"
             android:clickable="true"
             android:focusable="true"
-            android:background="#33000000"
+            android:background="#99000000"
             android:elevation="8dp" />
 
     </RelativeLayout>

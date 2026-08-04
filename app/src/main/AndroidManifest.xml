@@ -87,12 +87,11 @@
             </intent-filter>
         </service>
 
-        <!-- 闹钟式提醒界面 -->
+        <!-- 闹钟式提醒界面 — 底部弹出，下滑关闭 -->
         <activity
             android:name=".AlarmActivity"
             android:exported="false"
-            android:showOnLockScreen="true"
-            android:turnScreenOn="true"
+            android:theme="@style/Theme.Carlistener.Alarm"
             android:excludeFromRecents="true"
             android:taskAffinity=""
             android:launchMode="singleInstance" />
