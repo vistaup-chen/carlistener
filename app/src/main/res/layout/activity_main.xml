@@ -2,6 +2,7 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:fitsSystemWindows="true"
     android:padding="16dp">
 
     <LinearLayout
@@ -21,7 +22,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="短信关键字（多个关键字用逗号分隔）："
+            android:text="关键字匹配（短信内容和通知内容都会匹配）："
             android:textSize="16sp"
             android:layout_marginTop="8dp" />
 
@@ -29,7 +30,23 @@
             android:id="@+id/keywordEditText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="12123,驶离,处罚,交警"
+            android:hint="驶离,处罚,交警,违停"
+            android:inputType="text"
+            android:layout_marginTop="4dp" />
+
+        <!-- 短信号码配置 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="监听的短信号码（多个用逗号分隔）："
+            android:textSize="16sp"
+            android:layout_marginTop="16dp" />
+
+        <EditText
+            android:id="@+id/senderNumbersEditText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="12123,121233300"
             android:inputType="text"
             android:layout_marginTop="4dp" />
 
@@ -49,6 +66,8 @@
             android:gravity="center_vertical"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
             android:background="@android:drawable/edit_text"
             android:text="交管12123（com.tmri.app.main）"
             android:textColor="#666666"
@@ -93,6 +112,20 @@
             android:text="启用通知监听"
             android:layout_marginTop="8dp" />
 
+        <Button
+            android:id="@+id/autoStartButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="自启动设置"
+            android:layout_marginTop="8dp" />
+
+        <Button
+            android:id="@+id/batteryOptButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="电池优化白名单"
+            android:layout_marginTop="8dp" />
+
         <!-- 操作按钮 -->
         <Button
             android:id="@+id/saveButton"
@@ -117,15 +150,18 @@
             android:textSize="14sp"
             android:layout_marginTop="16dp"
             android:background="#F0F0F0"
+            android:textColor="#333333"
             android:padding="12dp" />
 
+        <!-- 使用说明 -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="使用说明：\n1. 点击「选择应用」选取要监听的通知应用\n2. 点击「授予短信权限」允许应用读取短信\n3. 点击「启用通知监听」在设置中启用通知访问权限\n4. 设置关键字后，收到包含关键字的短信或通知时会最大音量响铃"
+            android:text="使用说明：\n1. 首次启动会自动申请短信权限，请点击「允许」\n2. 点击「启用通知监听」→ 找到「车辆监听器」→ 开启开关\n3. 点击「自启动设置」→ 允许本应用自启动（不同手机路径不同）\n4. 点击「电池优化白名单」→ 选择「允许」\n5. 短信号码默认 12123/121233300，收到即响铃（不管内容）\n6. 关键字同时匹配短信内容和通知内容，命中任一即响铃\n7. 短信号码和关键字是 OR 关系，满足任一条件就触发\n8. 响铃时会弹出全屏提醒界面，点击「关闭提醒」可停止\n9. 不手动关闭则 5 分钟后自动停止\n10. 可用「测试响铃」按钮验证铃声是否正常"
             android:textSize="12sp"
             android:layout_marginTop="16dp"
-            android:textColor="#666666" />
+            android:textColor="#CCCCCC"
+            android:lineSpacingExtra="4dp" />
 
     </LinearLayout>
 

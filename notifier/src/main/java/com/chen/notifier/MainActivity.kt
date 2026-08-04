@@ -20,6 +20,7 @@ class MainActivity : AppCompatActivity() {
     private var countDownTimer: CountDownTimer? = null
     private var pending = false
     private lateinit var button: Button
+    private lateinit var smsButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -27,13 +28,14 @@ class MainActivity : AppCompatActivity() {
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(48, 48, 48, 48)
+            fitsSystemWindows = true
         }
 
         button = Button(this).apply {
             text = "发送测试通知"
             textSize = 14f
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
                 bottomMargin = 24
@@ -41,34 +43,63 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener {
                 if (pending) return@setOnClickListener
                 if (!ensureNotificationPermission()) return@setOnClickListener
-                startCountdown()
+                startCountdown("通知")
+            }
+        }
+
+        smsButton = Button(this).apply {
+            text = "发送测试短信"
+            textSize = 14f
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = 24
+            }
+            setOnClickListener {
+                if (pending) return@setOnClickListener
+                startCountdown("短信")
             }
         }
 
         layout.addView(button)
+        layout.addView(smsButton)
         setContentView(layout)
     }
 
-    private fun startCountdown() {
+    private fun startCountdown(type: String) {
         pending = true
-        button.isEnabled = false
-        Toast.makeText(this, "5秒后发送通知", Toast.LENGTH_SHORT).show()
+        val targetButton = if (type == "短信") smsButton else button
+        targetButton.isEnabled = false
+        Toast.makeText(this, "5秒后发送测试$type", Toast.LENGTH_SHORT).show()
 
         countDownTimer?.cancel()
         countDownTimer = object : CountDownTimer(5000, 1000) {
             override fun onTick(millisUntilFinished: Long) {
                 val seconds = (millisUntilFinished / 1000).toInt() + 1
-                button.text = "${seconds}秒后发送..."
+                targetButton.text = "${seconds}秒后发送..."
             }
 
             override fun onFinish() {
-                sendTestNotification()
+                if (type == "短信") {
+                    sendTestSms()
+                } else {
+                    sendTestNotification()
+                }
                 pending = false
-                button.isEnabled = true
-                button.text = "发送测试通知"
-                Toast.makeText(this@MainActivity, "通知已发送", Toast.LENGTH_SHORT).show()
+                targetButton.isEnabled = true
+                targetButton.text = if (type == "短信") "发送测试短信" else "发送测试通知"
+                Toast.makeText(this@MainActivity, "${type}已发送", Toast.LENGTH_SHORT).show()
             }
         }.start()
+    }
+
+    private fun sendTestSms() {
+        val intent = Intent("com.chen.carlistener.DEBUG_SMS")
+        intent.setPackage("com.chen.carlistener")
+        intent.putExtra("sender", "12123")
+        intent.putExtra("message", "您的小型新能源汽车浙A123456于2026年4月2日18时18分在xxx_xxx未按规定停放已被记录，请立即驶离，未及时驶离的，将依法予以处罚，谢谢配合！")
+        sendBroadcast(intent)
     }
 
     private fun ensureNotificationPermission(): Boolean {

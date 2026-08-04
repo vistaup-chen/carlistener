@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:background="#D32F2F"
+    android:padding="32dp">
+
+    <!-- 警告图标 -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="⚠️"
+        android:textSize="72sp"
+        android:layout_marginBottom="16dp" />
+
+    <!-- 标题 -->
+    <TextView
+        android:id="@+id/alarmTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="车辆监听提醒"
+        android:textSize="28sp"
+        android:textStyle="bold"
+        android:textColor="#FFFFFF"
+        android:layout_marginBottom="12dp" />
+
+    <!-- 消息内容 -->
+    <TextView
+        android:id="@+id/alarmMessage"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="检测到关键字消息"
+        android:textSize="18sp"
+        android:textColor="#FFFFFF"
+        android:gravity="center"
+        android:lineSpacingExtra="4dp"
+        android:layout_marginBottom="48dp" />
+
+    <!-- 关闭按钮 -->
+    <Button
+        android:id="@+id/dismissButton"
+        android:layout_width="240dp"
+        android:layout_height="72dp"
+        android:text="关闭提醒"
+        android:textSize="22sp"
+        android:textColor="#D32F2F"
+        android:backgroundTint="#FFFFFF"
+        android:layout_marginBottom="24dp" />
+
+    <!-- 提示文字 -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="响铃将在 5 分钟后自动停止"
+        android:textSize="14sp"
+        android:textColor="#FFCDD2" />
+
+</LinearLayout>

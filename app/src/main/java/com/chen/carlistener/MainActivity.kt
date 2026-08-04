@@ -7,8 +7,10 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
@@ -25,7 +27,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusTextView: TextView
     private lateinit var smsPermissionButton: Button
     private lateinit var notificationPermissionButton: Button
+    private lateinit var senderNumbersEditText: EditText
     private lateinit var testRingButton: Button
+    private lateinit var autoStartButton: Button
+    private lateinit var batteryOptButton: Button
 
     private var isRinging = false
 
@@ -43,7 +48,12 @@ class MainActivity : AppCompatActivity() {
         const val PREFS_NAME = "CarListenerPrefs"
         const val KEY_KEYWORDS = "keywords"
         const val KEY_NOTIFICATION_PACKAGE = "notification_package"
+        const val KEY_SENDER_NUMBERS = "sender_numbers"
+        const val DEFAULT_KEYWORDS = "驶离,处罚,交警,违停"
+        const val DEFAULT_SENDER_NUMBERS = "12123,121233300"
         const val DEFAULT_NOTIFICATION_PACKAGE = "com.tmri.app.main"
+        /** 测试 app 包名，强制监听但不在列表中展示 */
+        const val NOTIFIER_PACKAGE = "com.chen.notifier"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -51,15 +61,18 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         val filter = IntentFilter(RingtoneService.ACTION_RINGTONE_STOPPED)
-        registerReceiver(ringtoneStopReceiver, filter)
+        ContextCompat.registerReceiver(this, ringtoneStopReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
 
         keywordEditText = findViewById(R.id.keywordEditText)
+        senderNumbersEditText = findViewById(R.id.senderNumbersEditText)
         selectedAppTextView = findViewById(R.id.selectedAppTextView)
         selectAppButton = findViewById(R.id.selectAppButton)
         quick12123Button = findViewById(R.id.quick12123Button)
         statusTextView = findViewById(R.id.statusTextView)
         smsPermissionButton = findViewById(R.id.smsPermissionButton)
         notificationPermissionButton = findViewById(R.id.notificationPermissionButton)
+        autoStartButton = findViewById(R.id.autoStartButton)
+        batteryOptButton = findViewById(R.id.batteryOptButton)
 
         loadPreferences()
 
@@ -69,6 +82,14 @@ class MainActivity : AppCompatActivity() {
 
         notificationPermissionButton.setOnClickListener {
             openNotificationListenerSettings()
+        }
+
+        autoStartButton.setOnClickListener {
+            AutoStartHelper.openAutoStartSetting(this)
+        }
+
+        batteryOptButton.setOnClickListener {
+            openBatteryOptimizationSettings()
         }
 
         selectAppButton.setOnClickListener {
@@ -87,6 +108,7 @@ class MainActivity : AppCompatActivity() {
             savePreferences()
             Toast.makeText(this, "配置已保存", Toast.LENGTH_SHORT).show()
             updateStatus()
+            checkAndPromptMissingPermissions()
         }
 
         testRingButton = findViewById(R.id.testRingButton)
@@ -94,40 +116,56 @@ class MainActivity : AppCompatActivity() {
             if (isRinging) {
                 stopRingtone()
             } else {
-                startRingtone("test")
-                Toast.makeText(this, "开始测试响铃（30秒后自动停止）", Toast.LENGTH_LONG).show()
+                // 5 秒延迟，给用户时间锁屏，验证锁屏下能否触发
+                testRingButton.isEnabled = false
+                object : android.os.CountDownTimer(5000, 1000) {
+                    override fun onTick(millisUntilFinished: Long) {
+                        val sec = (millisUntilFinished / 1000).toInt() + 1
+                        testRingButton.text = "${sec}秒后触发..."
+                    }
+                    override fun onFinish() {
+                        testRingButton.isEnabled = true
+                        startRingtone("test")
+                        Toast.makeText(this@MainActivity, "测试响铃已触发（5分钟后自动停止）", Toast.LENGTH_LONG).show()
+                    }
+                }.start()
             }
         }
 
         updateStatus()
         updateTestRingButton()
+
+        // 首次启动自动申请权限
+        autoRequestPermissions()
     }
 
     override fun onResume() {
         super.onResume()
-        // 每次回到前台检查服务是否还在运行，同步按钮状态
-        isRinging = isServiceRunning()
+        // 静态状态比废弃的 getRunningServices 更可靠
+        isRinging = RingtoneService.isRinging
         updateTestRingButton()
         updateStatus()
     }
 
-    private fun isServiceRunning(): Boolean {
-        val am = getSystemService(ACTIVITY_SERVICE) as? android.app.ActivityManager ?: return false
-        return am.getRunningServices(Int.MAX_VALUE)
-            .any { it.service.className == RingtoneService::class.java.name }
-    }
-
     private fun loadPreferences() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val keywords = prefs.getString(KEY_KEYWORDS, "")
+        val keywords = prefs.getString(KEY_KEYWORDS, DEFAULT_KEYWORDS)
+        val senderNumbers = prefs.getString(KEY_SENDER_NUMBERS, DEFAULT_SENDER_NUMBERS)
         val notificationPackage = prefs.getString(KEY_NOTIFICATION_PACKAGE, DEFAULT_NOTIFICATION_PACKAGE)
         keywordEditText.setText(keywords)
+        senderNumbersEditText.setText(senderNumbers)
         updateSelectedAppDisplay(notificationPackage ?: DEFAULT_NOTIFICATION_PACKAGE)
     }
 
-    private fun updateSelectedAppDisplay(packageName: String) {
-        val appLabel = getAppLabel(packageName)
-        selectedAppTextView.text = "$appLabel（$packageName）"
+    private fun updateSelectedAppDisplay(packageNames: String) {
+        val names = packageNames.split(",").map { it.trim() }
+            .filter { it.isNotEmpty() && it != NOTIFIER_PACKAGE }
+        if (names.size == 1) {
+            selectedAppTextView.text = "${getAppLabel(names[0])}（${names[0]}）"
+        } else {
+            val labels = names.joinToString("\n") { "• ${getAppLabel(it)}（$it）" }
+            selectedAppTextView.text = labels
+        }
     }
 
     private fun getAppLabel(packageName: String): String {
@@ -142,11 +180,106 @@ class MainActivity : AppCompatActivity() {
 
     private fun savePreferences() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val keywords = keywordEditText.text.toString().trim().ifEmpty { DEFAULT_KEYWORDS }
+        val senderNumbers = senderNumbersEditText.text.toString().trim().ifEmpty { DEFAULT_SENDER_NUMBERS }
         prefs.edit()
-            .putString(KEY_KEYWORDS, keywordEditText.text.toString())
+            .putString(KEY_KEYWORDS, keywords)
+            .putString(KEY_SENDER_NUMBERS, senderNumbers)
             .putString(KEY_NOTIFICATION_PACKAGE,
                 prefs.getString(KEY_NOTIFICATION_PACKAGE, DEFAULT_NOTIFICATION_PACKAGE))
             .apply()
+    }
+
+    /**
+     * 启动时自动申请所有必要权限
+     */
+    private fun autoRequestPermissions() {
+        val permissionsToRequest = mutableListOf<String>()
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(Manifest.permission.RECEIVE_SMS)
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(Manifest.permission.READ_SMS)
+        }
+        // 用 areNotificationsEnabled 检查，比 checkSelfPermission 更准确
+        val nmCheck = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+        if (!nmCheck.areNotificationsEnabled()) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+
+        if (permissionsToRequest.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, permissionsToRequest.toTypedArray(), 1002)
+        }
+
+        if (!isNotificationListenerEnabled()) {
+            Toast.makeText(this, "请在设置中启用「通知监听」权限", Toast.LENGTH_LONG).show()
+        }
+
+        // 全屏通知权限（Android 14+，小米等厂商默认关闭）
+        if (Build.VERSION.SDK_INT >= 34) {
+            val nmFs = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+            if (!nmFs.canUseFullScreenIntent()) {
+                Toast.makeText(this, "请开启「全屏弹窗」权限，否则闹钟界面无法弹出", Toast.LENGTH_LONG).show()
+            }
+        }
+
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+            Toast.makeText(this, "请将本应用加入电池优化白名单", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /**
+     * 保存配置后检查所有必要权限，缺少的弹窗提示并引导开启
+     */
+    private fun checkAndPromptMissingPermissions() {
+        val missing = mutableListOf<String>()
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED) {
+            missing.add("接收短信 (RECEIVE_SMS)")
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
+            missing.add("读取短信 (READ_SMS)")
+        }
+        val nm = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+        if (!nm.areNotificationsEnabled()) {
+            missing.add("通知权限 (POST_NOTIFICATIONS)")
+        }
+        if (Build.VERSION.SDK_INT >= 34 && !nm.canUseFullScreenIntent()) {
+            missing.add("全屏弹窗 (USE_FULL_SCREEN_INTENT)")
+        }
+        if (!isNotificationListenerEnabled()) {
+            missing.add("通知监听 (NotificationListener)")
+        }
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+            missing.add("电池优化白名单 (BatteryOpt)")
+        }
+
+        if (missing.isEmpty()) {
+            Toast.makeText(this, "所有权限已就绪 ✓", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("缺少以下权限")
+            .setMessage("以下权限未开启，可能影响功能：\n\n${missing.joinToString("\n") { "• $it" }}\n\n点击「去设置」逐个开启。")
+            .setPositiveButton("去设置") { _, _ ->
+                val nm2 = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+                when {
+                    ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED
+                        || ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED -> checkAndRequestSmsPermission()
+                    !nm2.areNotificationsEnabled() -> openAppNotificationSettings()
+                    Build.VERSION.SDK_INT >= 34 && !nm2.canUseFullScreenIntent() -> openFullScreenIntentSettings()
+                    !isNotificationListenerEnabled() -> openNotificationListenerSettings()
+                    !(getSystemService(POWER_SERVICE) as PowerManager).isIgnoringBatteryOptimizations(packageName) -> openBatteryOptimizationSettings()
+                }
+            }
+            .setNegativeButton("稍后", null)
+            .show()
     }
 
     private fun checkAndRequestSmsPermission() {
@@ -163,6 +296,41 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * 打开本应用的通知设置页（用于授予 POST_NOTIFICATIONS 权限）
+     */
+    private fun openAppNotificationSettings() {
+        try {
+            val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            intent.putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            startActivity(intent)
+        } catch (e: Exception) {
+            // 降级：打开应用详情页
+            try {
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                intent.data = Uri.parse("package:$packageName")
+                startActivity(intent)
+            } catch (_: Exception) {
+                Toast.makeText(this, "无法打开通知设置", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    /**
+     * 打开全屏通知权限设置（Android 14+ 小米需要手动开启）
+     */
+    private fun openFullScreenIntentSettings() {
+        try {
+            // Android 14+ 有专门的全屏通知设置
+            val intent = Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT)
+            intent.data = Uri.parse("package:$packageName")
+            startActivity(intent)
+        } catch (e: Exception) {
+            // 降级：打开通知设置
+            openAppNotificationSettings()
+        }
+    }
+
     private fun openNotificationListenerSettings() {
         try {
             val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
@@ -172,54 +340,168 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun openBatteryOptimizationSettings() {
+        try {
+            val pm = getSystemService(POWER_SERVICE) as PowerManager
+            if (pm.isIgnoringBatteryOptimizations(packageName)) {
+                Toast.makeText(this, "已在电池优化白名单中", Toast.LENGTH_SHORT).show()
+                return
+            }
+            // 跳转到本应用的电池优化设置
+            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+            intent.data = Uri.parse("package:$packageName")
+            startActivity(intent)
+        } catch (e: Exception) {
+            // 降级：打开全局电池优化列表
+            try {
+                val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                startActivity(intent)
+            } catch (_: Exception) {
+                Toast.makeText(this, "无法打开电池优化设置", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     private fun showAppSelectionDialog() {
         val pm = packageManager
-        val installedApps = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
-        } else {
-            @Suppress("DEPRECATION")
-            pm.getInstalledApplications(PackageManager.GET_META_DATA)
-        }
 
-        val userApps = installedApps
-            .filter { it.flags and ApplicationInfo.FLAG_SYSTEM == 0 || it.packageName == DEFAULT_NOTIFICATION_PACKAGE }
+        val mainIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val resolveInfos = pm.queryIntentActivities(mainIntent, 0)
+
+        val appList = resolveInfos
+            .map { it.activityInfo.applicationInfo }
+            .distinctBy { it.packageName }
+            .filter { it.packageName != NOTIFIER_PACKAGE }
             .sortedBy { pm.getApplicationLabel(it).toString().lowercase() }
 
-        val items = userApps.map { appInfo ->
-            val label = pm.getApplicationLabel(appInfo).toString()
-            val pkg = appInfo.packageName
-            if (pkg == DEFAULT_NOTIFICATION_PACKAGE) "$label（交管12123）" else label
-        }.toTypedArray()
+        val app12123 = try {
+            pm.getApplicationInfo(DEFAULT_NOTIFICATION_PACKAGE, 0)
+        } catch (_: Exception) {
+            null
+        }
 
-        val selectedPackage = userApps.map { it.packageName }.toTypedArray()
+        if (app12123 == null) {
+            Toast.makeText(this, "未安装交管12123，请先安装后再选择", Toast.LENGTH_LONG).show()
+        }
+
+        val finalList = if (app12123 != null) {
+            val rest = appList.filter { it.packageName != DEFAULT_NOTIFICATION_PACKAGE }
+            listOf(app12123) + rest
+        } else {
+            appList
+        }
+
+        if (finalList.isEmpty()) {
+            Toast.makeText(this, "未找到已安装应用", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val currentSelected = prefs.getString(KEY_NOTIFICATION_PACKAGE, DEFAULT_NOTIFICATION_PACKAGE) ?: ""
+        val selectedSet = currentSelected.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toMutableSet()
+
+        // 加载自定义布局
+        val dialogView = layoutInflater.inflate(R.layout.dialog_app_list, null)
+        val searchEditText = dialogView.findViewById<EditText>(R.id.searchEditText)
+        val listView = dialogView.findViewById<ListView>(R.id.appListView)
+        val sidebar = dialogView.findViewById<LinearLayout>(R.id.letterSidebar)
+
+        val adapter = AppListAdapter(this, pm)
+        adapter.setData(finalList, selectedSet)
+        listView.adapter = adapter
+
+        // 点击切换选中状态
+        listView.setOnItemClickListener { _, _, position, _ ->
+            val item = adapter.getItem(position) as AppListAdapter.ListItem
+            if (item.type == AppListAdapter.TYPE_APP && item.appInfo != null) {
+                val pkg = item.appInfo.packageName
+                if (pkg in selectedSet) selectedSet.remove(pkg) else selectedSet.add(pkg)
+                adapter.setData(finalList, selectedSet)
+            }
+        }
+
+        // 搜索过滤
+        searchEditText.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                adapter.filter(s?.toString() ?: "")
+                buildLetterSidebar(sidebar, adapter, listView)
+            }
+        })
+
+        // 构建 A-Z 侧边栏
+        buildLetterSidebar(sidebar, adapter, listView)
 
         AlertDialog.Builder(this)
-            .setTitle("选择要监听的应用")
-            .setItems(items) { _, which ->
-                val chosen = selectedPackage[which]
-                val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                prefs.edit().putString(KEY_NOTIFICATION_PACKAGE, chosen).apply()
-                updateSelectedAppDisplay(chosen)
+            .setTitle("选择要监听的应用（可多选）")
+            .setView(dialogView)
+            .setPositiveButton("确定") { _, _ ->
+                if (selectedSet.isEmpty()) {
+                    Toast.makeText(this, "请至少选择一个应用", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                val value = selectedSet.joinToString(",")
+                prefs.edit().putString(KEY_NOTIFICATION_PACKAGE, value).apply()
+                updateSelectedAppDisplay(value)
                 updateStatus()
             }
             .setNegativeButton("取消", null)
             .show()
     }
 
+    private fun buildLetterSidebar(sidebar: LinearLayout, adapter: AppListAdapter, listView: ListView) {
+        sidebar.removeAllViews()
+        val available = adapter.getAvailableLetters()
+        for (c in 'A'..'Z') {
+            val tv = TextView(this).apply {
+                text = c.toString()
+                textSize = 10f
+                gravity = android.view.Gravity.CENTER
+                setPadding(0, 2, 0, 2)
+                setTextColor(if (c in available) 0xFF333333.toInt() else 0xFFBBBBBB.toInt())
+            }
+            if (c in available) {
+                tv.setOnClickListener {
+                    val pos = adapter.getLetterPosition(c)
+                    if (pos >= 0) listView.smoothScrollToPosition(pos)
+                }
+            }
+            sidebar.addView(tv)
+        }
+    }
+
     private fun updateStatus() {
-        val hasSmsPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED
+        val hasReceiveSms = ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED
+        val hasReadSms = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
+        val nm = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+        val hasPostNotif = nm.areNotificationsEnabled()
+        // 全屏通知权限（Android 14+）
+        val hasFullScreen = if (Build.VERSION.SDK_INT >= 34) {
+            nm.canUseFullScreenIntent()
+        } else true
         val hasNotificationPermission = isNotificationListenerEnabled()
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        val hasBatteryOpt = pm.isIgnoringBatteryOptimizations(packageName)
 
         val status = StringBuilder("状态：\n")
-        status.append("短信权限：${if (hasSmsPermission) "✓ 已授予" else "✗ 未授予"}\n")
+        status.append("接收短信：${if (hasReceiveSms) "✓" else "✗"}\n")
+        status.append("读取短信：${if (hasReadSms) "✓" else "✗"}\n")
+        status.append("通知权限：${if (hasPostNotif) "✓" else "✗"}\n")
+        status.append("全屏弹窗：${if (hasFullScreen) "✓" else "✗"}\n")
         status.append("通知监听：${if (hasNotificationPermission) "✓ 已启用" else "✗ 未启用"}\n")
+        status.append("电池优化白名单：${if (hasBatteryOpt) "✓ 已加入" else "✗ 未加入"}\n")
 
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val keywords = prefs.getString(KEY_KEYWORDS, "")
+        val keywords = prefs.getString(KEY_KEYWORDS, DEFAULT_KEYWORDS)
+        val senderNumbers = prefs.getString(KEY_SENDER_NUMBERS, DEFAULT_SENDER_NUMBERS)
         val notificationPackage = prefs.getString(KEY_NOTIFICATION_PACKAGE, DEFAULT_NOTIFICATION_PACKAGE) ?: DEFAULT_NOTIFICATION_PACKAGE
-        val appLabel = getAppLabel(notificationPackage)
-        status.append("关键字：${if (keywords.isNullOrEmpty()) "未设置" else keywords}\n")
-        status.append("监听应用：$appLabel（$notificationPackage）")
+        val appLabels = notificationPackage.split(",")
+            .filter { it.trim() != NOTIFIER_PACKAGE }
+            .joinToString("、") { "${getAppLabel(it.trim())}（${it.trim()}）" }
+        status.append("关键字：${keywords}\n")
+        status.append("短信号码：${if (senderNumbers.isNullOrEmpty()) "未设置" else senderNumbers}\n")
+        status.append("监听应用：$appLabels")
 
         statusTextView.text = status.toString()
     }
@@ -232,12 +514,17 @@ class MainActivity : AppCompatActivity() {
     private fun startRingtone(action: String) {
         val intent = Intent(this, RingtoneService::class.java)
         intent.putExtra("action", action)
-        isRinging = true
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "启动响铃失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            return
         }
+        isRinging = true
         updateTestRingButton()
     }
 
@@ -257,12 +544,24 @@ class MainActivity : AppCompatActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 1001) {
-            if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                Toast.makeText(this, "短信权限已授予", Toast.LENGTH_SHORT).show()
-                updateStatus()
-            } else {
-                Toast.makeText(this, "需要短信权限才能监听短信", Toast.LENGTH_LONG).show()
+        updateStatus()
+        when (requestCode) {
+            1001 -> {
+                if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                    Toast.makeText(this, "短信权限已授予", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "需要短信权限才能监听短信", Toast.LENGTH_LONG).show()
+                }
+            }
+            1002 -> {
+                val denied = permissions.filterIndexed { i, _ ->
+                    grantResults.getOrNull(i) != PackageManager.PERMISSION_GRANTED
+                }.map { it.substringAfterLast(".") }
+                if (denied.isEmpty()) {
+                    Toast.makeText(this, "所有权限已授予 ✓", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "以下权限未授予：${denied.joinToString("、")}", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
