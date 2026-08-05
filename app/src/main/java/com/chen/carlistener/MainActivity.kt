@@ -1,6 +1,10 @@
 package com.chen.carlistener
 
 import android.Manifest
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -29,10 +33,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var notificationPermissionButton: Button
     private lateinit var senderNumbersEditText: EditText
     private lateinit var testRingButton: Button
+    private lateinit var testPopupButton: Button
     private lateinit var autoStartButton: Button
     private lateinit var batteryOptButton: Button
     private lateinit var notifSettingsButton: Button
     private lateinit var fullScreenSettingsButton: Button
+    private lateinit var overlayPermissionButton: Button
 
     private var isRinging = false
 
@@ -42,6 +48,16 @@ class MainActivity : AppCompatActivity() {
                 isRinging = false
                 updateTestRingButton()
                 Toast.makeText(this@MainActivity, "响铃已停止", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private val silentTestReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "com.chen.carlistener.SILENT_TEST_POPUP") {
+                android.util.Log.d("SilentTest", "silentTestReceiver 收到广播")
+                val message = intent.getStringExtra(AlarmActivity.EXTRA_MESSAGE) ?: "【静默测试】"
+                wakeAndShowPopup(message)
             }
         }
     }
@@ -65,6 +81,9 @@ class MainActivity : AppCompatActivity() {
         val filter = IntentFilter(RingtoneService.ACTION_RINGTONE_STOPPED)
         ContextCompat.registerReceiver(this, ringtoneStopReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
 
+        val silentTestFilter = IntentFilter("com.chen.carlistener.SILENT_TEST_POPUP")
+        ContextCompat.registerReceiver(this, silentTestReceiver, silentTestFilter, ContextCompat.RECEIVER_NOT_EXPORTED)
+
         keywordEditText = findViewById(R.id.keywordEditText)
         senderNumbersEditText = findViewById(R.id.senderNumbersEditText)
         selectedAppTextView = findViewById(R.id.selectedAppTextView)
@@ -77,6 +96,7 @@ class MainActivity : AppCompatActivity() {
         batteryOptButton = findViewById(R.id.batteryOptButton)
         notifSettingsButton = findViewById(R.id.notifSettingsButton)
         fullScreenSettingsButton = findViewById(R.id.fullScreenSettingsButton)
+        overlayPermissionButton = findViewById(R.id.overlayPermissionButton)
 
         loadPreferences()
 
@@ -104,6 +124,10 @@ class MainActivity : AppCompatActivity() {
             openFullScreenIntentSettings()
         }
 
+        overlayPermissionButton.setOnClickListener {
+            openOverlayPermissionSettings()
+        }
+
         selectAppButton.setOnClickListener {
             showAppSelectionDialog()
         }
@@ -124,6 +148,21 @@ class MainActivity : AppCompatActivity() {
         }
 
         testRingButton = findViewById(R.id.testRingButton)
+        testPopupButton = findViewById(R.id.testPopupButton)
+        testPopupButton.setOnClickListener {
+            // 静默测试：5秒后只弹窗，不响铃
+            if (!Settings.canDrawOverlays(this)) {
+                Toast.makeText(this, "请先开启悬浮窗权限", Toast.LENGTH_LONG).show()
+                try {
+                    val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+                    intent.data = Uri.parse("package:$packageName")
+                    startActivity(intent)
+                } catch (_: Exception) {}
+                return@setOnClickListener
+            }
+            Toast.makeText(this, "5秒后弹出...", Toast.LENGTH_SHORT).show()
+            scheduleSilentTestPopup()
+        }
         testRingButton.setOnClickListener {
             if (isRinging) {
                 stopRingtone()
@@ -344,6 +383,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * 打开悬浮窗权限设置（Android 12+ 后台弹窗必需）
+     */
+    private fun openOverlayPermissionSettings() {
+        try {
+            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+            intent.data = Uri.parse("package:$packageName")
+            startActivity(intent)
+        } catch (_: Exception) {
+            Toast.makeText(this, "无法打开悬浮窗设置", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun openNotificationListenerSettings() {
         try {
             val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
@@ -510,6 +562,7 @@ class MainActivity : AppCompatActivity() {
                     && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
         val hasFullScreen = if (Build.VERSION.SDK_INT >= 34) nm.canUseFullScreenIntent() else true
         val hasNotificationPermission = isNotificationListenerEnabled()
+        val hasOverlay = Settings.canDrawOverlays(this)
         val pm = getSystemService(POWER_SERVICE) as PowerManager
         val hasBatteryOpt = pm.isIgnoringBatteryOptimizations(packageName)
 
@@ -518,6 +571,7 @@ class MainActivity : AppCompatActivity() {
         status.append("读取短信：${if (hasReadSms) "✓" else "✗ 未授予"}\n")
         status.append("通知权限：${if (hasPostNotif) "✓" else "✗ 点击下方按钮设置"}\n")
         status.append("全屏弹窗：${if (hasFullScreen) "✓" else "✗ 点击下方按钮设置"}\n")
+        status.append("悬浮窗：${if (hasOverlay) "✓ 已授予" else "✗ 点击下方按钮设置"}\n")
         status.append("通知监听：${if (hasNotificationPermission) "✓ 已启用" else "✗ 未启用"}\n")
         status.append("电池优化：${if (hasBatteryOpt) "✓ 已加入" else "✗ 未加入"}")
 
@@ -555,6 +609,216 @@ class MainActivity : AppCompatActivity() {
         }
         isRinging = true
         updateTestRingButton()
+    }
+
+    /**
+     * 静默弹窗测试 — 用 AlarmManager.setAlarmClock() 触发广播
+     * 广播接收器里强制亮屏 + 发送 fullScreenIntent 通知
+     */
+    private fun scheduleSilentTestPopup() {
+        val message = "【静默测试】您的小型新能源汽车浙A123456于2026年8月5日18时18分在xxx_xxx未按规定停放已被记录，请立即驶离。"
+        android.util.Log.d("SilentTest", "scheduleSilentTestPopup() 被调用")
+
+        val intent = Intent("com.chen.carlistener.SILENT_TEST_POPUP").apply {
+            setPackage(packageName)
+            putExtra(AlarmActivity.EXTRA_MESSAGE, message)
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            this, 3, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        android.util.Log.d("SilentTest", "broadcast pendingIntent created")
+
+        val alarmManager = getSystemService(android.app.AlarmManager::class.java)
+        val alarmClockInfo = android.app.AlarmManager.AlarmClockInfo(
+            System.currentTimeMillis() + 5000,
+            pendingIntent
+        )
+
+        try {
+            alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
+            android.util.Log.d("SilentTest", "setAlarmClock() 调用成功")
+        } catch (e: Exception) {
+            android.util.Log.e("SilentTest", "setAlarmClock() 失败: ${e.message}", e)
+            // 降级：直接启动
+            wakeAndShowPopup(message)
+        }
+    }
+
+    /**
+     * 强制亮屏 + 用 SYSTEM_ALERT_WINDOW 直接添加覆盖 View
+     * 这是 Android 12+ 后台亮屏场景下唯一可靠的弹窗方式
+     */
+    private fun wakeAndShowPopup(message: String) {
+        android.util.Log.d("SilentTest", "wakeAndShowPopup() 被调用")
+
+        // 1. 强制亮屏 + 解锁
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        val wakeLock = pm.newWakeLock(
+            PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE,
+            "CarListener::SilentTestWakeLock"
+        )
+        wakeLock.setReferenceCounted(false)
+        wakeLock.acquire(15000L)
+        android.util.Log.d("SilentTest", "WakeLock acquired")
+
+        // 2. 用 SYSTEM_ALERT_WINDOW 直接在 WindowManager 上绘制弹窗
+        if (!Settings.canDrawOverlays(this)) {
+            android.util.Log.e("SilentTest", "没有悬浮窗权限！")
+            // 引导用户开启
+            Toast.makeText(this, "请先开启「悬浮窗」权限", Toast.LENGTH_LONG).show()
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+                intent.data = Uri.parse("package:$packageName")
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
+            } catch (_: Exception) {}
+            return
+        }
+
+        android.util.Log.d("SilentTest", "有悬浮窗权限，准备绘制覆盖层")
+        showOverlayPopup(message)
+    }
+
+    /**
+     * 用 WindowManager 添加 TYPE_APPLICATION_OVERLAY 覆盖层
+     * 锁屏、桌面、任意 app 之上都能显示
+     */
+    private fun showOverlayPopup(message: String) {
+        val windowManager = getSystemService(WINDOW_SERVICE) as android.view.WindowManager
+        val density = resources.displayMetrics.density
+        fun dp(v: Int) = (v * density).toInt()
+
+        // 全屏透明背景（点击可关闭）
+        val overlay = android.widget.FrameLayout(this).apply {
+            setBackgroundColor(0x99000000.toInt())
+            isClickable = true
+            isFocusable = true
+        }
+
+        // 红色卡片
+        val card = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+            setBackgroundColor(0xFFD32F2F.toInt())
+            setPadding(dp(32), dp(16), dp(32), dp(32))
+            isClickable = true // 拦截点击，防止穿透到背景关闭
+
+            // 下拉指示条
+            addView(android.view.View(this@MainActivity).apply {
+                layoutParams = android.widget.LinearLayout.LayoutParams(dp(40), dp(5)).apply {
+                    bottomMargin = dp(16)
+                }
+                setBackgroundColor(0x80FFFFFF.toInt())
+            })
+
+            // 警告图标
+            addView(android.widget.TextView(this@MainActivity).apply {
+                text = "⚠️"
+                textSize = 48f
+                gravity = android.view.Gravity.CENTER
+            })
+
+            // 标题
+            addView(android.widget.TextView(this@MainActivity).apply {
+                text = "车辆监听提醒"
+                textSize = 22f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(0xFFFFFFFF.toInt())
+                gravity = android.view.Gravity.CENTER
+                setPadding(0, dp(8), 0, dp(8))
+            })
+
+            // 消息内容
+            addView(android.widget.TextView(this@MainActivity).apply {
+                text = message
+                textSize = 16f
+                setTextColor(0xFFFFFFFF.toInt())
+                gravity = android.view.Gravity.CENTER
+                setPadding(0, dp(8), 0, dp(16))
+            })
+
+            // 关闭按钮
+            addView(android.widget.Button(this@MainActivity).apply {
+                text = "关闭提醒"
+                textSize = 18f
+                setTextColor(0xFFD32F2F.toInt())
+                setBackgroundColor(0xFFFFFFFF.toInt())
+                minHeight = dp(56)
+                layoutParams = android.widget.LinearLayout.LayoutParams(dp(200), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(8)
+                }
+                setOnClickListener {
+                    android.util.Log.d("SilentTest", "点击关闭按钮")
+                    removeOverlay()
+                }
+            })
+
+            // 提示文字
+            addView(android.widget.TextView(this@MainActivity).apply {
+                text = "点击背景区域可关闭"
+                textSize = 12f
+                setTextColor(0xFFFFCDD2.toInt())
+                gravity = android.view.Gravity.CENTER
+                setPadding(0, dp(12), 0, 0)
+            })
+        }
+
+        // 卡片参数：底部居中
+        val cardParams = android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = android.view.Gravity.BOTTOM
+            leftMargin = dp(16)
+            rightMargin = dp(16)
+            bottomMargin = dp(48)
+        }
+        overlay.addView(card, cardParams)
+
+        // 点击半透明背景关闭
+        overlay.setOnClickListener {
+            android.util.Log.d("SilentTest", "点击背景关闭覆盖层")
+            removeOverlay()
+        }
+
+        // 覆盖层 WindowManager 参数
+        val params = android.view.WindowManager.LayoutParams(
+            android.view.WindowManager.LayoutParams.MATCH_PARENT,
+            android.view.WindowManager.LayoutParams.MATCH_PARENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else
+                @Suppress("DEPRECATION")
+                android.view.WindowManager.LayoutParams.TYPE_PHONE,
+            android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                    android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                    android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            android.graphics.PixelFormat.TRANSLUCENT
+        )
+
+        this.overlayView = overlay
+
+        try {
+            windowManager.addView(overlay, params)
+            android.util.Log.d("SilentTest", "覆盖层已添加 ✓")
+        } catch (e: Exception) {
+            android.util.Log.e("SilentTest", "添加覆盖层失败: ${e.message}", e)
+        }
+    }
+
+    private var overlayView: android.view.View? = null
+
+    private fun removeOverlay() {
+        overlayView?.let {
+            try {
+                val windowManager = getSystemService(WINDOW_SERVICE) as android.view.WindowManager
+                windowManager.removeView(it)
+                android.util.Log.d("SilentTest", "覆盖层已移除")
+            } catch (_: Exception) {}
+        }
+        overlayView = null
     }
 
     private fun stopRingtone() {
@@ -598,5 +862,9 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         unregisterReceiver(ringtoneStopReceiver)
+        try {
+            unregisterReceiver(silentTestReceiver)
+        } catch (_: Exception) {}
+        removeOverlay()
     }
 }

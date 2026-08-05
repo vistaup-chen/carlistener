@@ -34,6 +34,7 @@ class AlarmActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        android.util.Log.d("SilentTest", "AlarmActivity.onCreate() — 弹窗界面已启动")
 
         // 锁屏显示 + 亮屏 + 保持屏幕常亮
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {

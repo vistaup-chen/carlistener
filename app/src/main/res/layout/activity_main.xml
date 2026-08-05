@@ -140,6 +140,13 @@
             android:text="全屏弹窗设置"
             android:layout_marginTop="8dp" />
 
+        <Button
+            android:id="@+id/overlayPermissionButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="悬浮窗权限"
+            android:layout_marginTop="8dp" />
+
         <!-- 操作按钮 -->
         <Button
             android:id="@+id/saveButton"
@@ -153,6 +160,13 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="测试响铃"
+            android:layout_marginTop="8dp" />
+
+        <Button
+            android:id="@+id/testPopupButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="静默弹窗测试"
             android:layout_marginTop="8dp" />
 
         <!-- 状态显示 -->
