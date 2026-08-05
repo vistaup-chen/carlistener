@@ -215,14 +215,27 @@
                 android:gravity="center" />
         </LinearLayout>
 
-        <!-- 振动开关 -->
-        <CheckBox
-            android:id="@+id/vibrationCheckBox"
-            android:layout_width="wrap_content"
+        <!-- 振动强度（关/弱/中/强） -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="响铃时振动"
-            android:checked="true"
-            android:layout_marginTop="8dp" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="振动："
+                android:textSize="16sp" />
+
+            <Spinner
+                android:id="@+id/vibrationStrengthSpinner"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp" />
+        </LinearLayout>
 
         <!-- 状态显示 -->
         <TextView

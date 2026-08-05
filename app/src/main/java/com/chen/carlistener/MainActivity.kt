@@ -36,7 +36,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var testPopupButton: Button
     private lateinit var volumeSeekBar: SeekBar
     private lateinit var volumeTextView: TextView
-    private lateinit var vibrationCheckBox: CheckBox
+    private lateinit var vibrationStrengthSpinner: Spinner
     private lateinit var autoStartButton: Button
     private lateinit var batteryOptButton: Button
     private lateinit var notifSettingsButton: Button
@@ -78,9 +78,9 @@ class MainActivity : AppCompatActivity() {
         const val DEFAULT_SENDER_NUMBERS = "12123,121233300"
         const val DEFAULT_NOTIFICATION_PACKAGE = "com.tmri.app.main"
         const val KEY_VOLUME = "ring_volume"
-        const val KEY_VIBRATION = "ring_vibration"
+        const val KEY_VIBRATION_STRENGTH = "ring_vibration_strength"
         const val DEFAULT_VOLUME = 100
-        const val DEFAULT_VIBRATION = true
+        const val DEFAULT_VIBRATION_STRENGTH = 2 // 中（0=关 1=弱 2=中 3=强）
         /** 测试 app 包名，强制监听但不在列表中展示 */
         const val NOTIFIER_PACKAGE = "com.chen.notifier"
     }
@@ -110,7 +110,7 @@ class MainActivity : AppCompatActivity() {
         overlayPermissionButton = findViewById(R.id.overlayPermissionButton)
         volumeSeekBar = findViewById(R.id.volumeSeekBar)
         volumeTextView = findViewById(R.id.volumeTextView)
-        vibrationCheckBox = findViewById(R.id.vibrationCheckBox)
+        vibrationStrengthSpinner = findViewById(R.id.vibrationStrengthSpinner)
 
         loadPreferences()
 
@@ -163,9 +163,6 @@ class MainActivity : AppCompatActivity() {
 
         testRingButton = findViewById(R.id.testRingButton)
         testPopupButton = findViewById(R.id.testPopupButton)
-        volumeSeekBar = findViewById(R.id.volumeSeekBar)
-        volumeTextView = findViewById(R.id.volumeTextView)
-        vibrationCheckBox = findViewById(R.id.vibrationCheckBox)
         testPopupButton.setOnClickListener {
             // 静默测试：5秒后只弹窗，不响铃
             if (!Settings.canDrawOverlays(this)) {
@@ -228,12 +225,10 @@ class MainActivity : AppCompatActivity() {
         val volume = prefs.getInt(KEY_VOLUME, DEFAULT_VOLUME)
         volumeSeekBar.progress = volume
         volumeTextView.text = volume.toString()
-        vibrationCheckBox.isChecked = prefs.getBoolean(KEY_VIBRATION, DEFAULT_VIBRATION)
 
         volumeSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 volumeTextView.text = progress.toString()
-                // 立即保存
                 getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
                     .putInt(KEY_VOLUME, progress).apply()
             }
@@ -241,10 +236,19 @@ class MainActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
-        vibrationCheckBox.setOnCheckedChangeListener { _, isChecked ->
-            // 立即保存
-            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
-                .putBoolean(KEY_VIBRATION, isChecked).apply()
+        // 振动强度选择器：0=关 1=弱 2=中 3=强
+        val strengthOptions = arrayOf("关", "弱", "中", "强")
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, strengthOptions)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        vibrationStrengthSpinner.adapter = adapter
+        vibrationStrengthSpinner.setSelection(
+            prefs.getInt(KEY_VIBRATION_STRENGTH, DEFAULT_VIBRATION_STRENGTH))
+        vibrationStrengthSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                    .putInt(KEY_VIBRATION_STRENGTH, position).apply()
+            }
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
         }
     }
 
@@ -279,7 +283,6 @@ class MainActivity : AppCompatActivity() {
             .putString(KEY_NOTIFICATION_PACKAGE,
                 prefs.getString(KEY_NOTIFICATION_PACKAGE, DEFAULT_NOTIFICATION_PACKAGE))
             .putInt(KEY_VOLUME, volumeSeekBar.progress)
-            .putBoolean(KEY_VIBRATION, vibrationCheckBox.isChecked)
             .apply()
     }
 

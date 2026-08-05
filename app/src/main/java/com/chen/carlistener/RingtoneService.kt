@@ -178,7 +178,6 @@ class RingtoneService : Service() {
             val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
             val prefs = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE)
             val volumePercent = prefs.getInt(MainActivity.KEY_VOLUME, MainActivity.DEFAULT_VOLUME)
-            val vibrationEnabled = prefs.getBoolean(MainActivity.KEY_VIBRATION, MainActivity.DEFAULT_VIBRATION)
 
             // 保存原始音量（用于响铃结束后恢复）
             savedAlarmVolume = audioManager.getStreamVolume(AudioManager.STREAM_ALARM)
@@ -239,11 +238,7 @@ class RingtoneService : Service() {
 
             acquireWakeLock()
 
-            if (vibrationEnabled) {
-                startVibration()
-            } else {
-                Log.d(TAG, "振动已关闭")
-            }
+            startVibration() // 强度由 Spinner 控制，0=关
 
             isRinging = true
 
@@ -513,14 +508,37 @@ class RingtoneService : Service() {
             }
 
             if (vibrator?.hasVibrator() == true) {
-                val pattern = longArrayOf(0, 800, 400, 800, 400, 800)
+                val prefs = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE)
+                val strength = prefs.getInt(MainActivity.KEY_VIBRATION_STRENGTH, MainActivity.DEFAULT_VIBRATION_STRENGTH)
+                if (strength == 0) {
+                    Log.d(TAG, "振动已关闭")
+                    return
+                }
+                // 振幅：1=弱(120), 2=中(200), 3=强(255)
+                val amplitude = when (strength) {
+                    1 -> 120
+                    2 -> 200
+                    else -> 255
+                }
+                // 振动模式：1000ms振动 + 300ms暂停，循环
+                val timings = longArrayOf(0, 1000, 300, 1000, 300, 1000)
+                val amplitudes = intArrayOf(0, amplitude, 0, amplitude, 0, amplitude)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    vibrator?.vibrate(VibrationEffect.createWaveform(pattern, 0))
+                    val effect = VibrationEffect.createWaveform(timings, amplitudes, 0)
+                    if (Build.VERSION.SDK_INT >= 33) {
+                        // Android 13+ 必须指定 VibrationAttributes 才能在后台振动
+                        val attrs = android.os.VibrationAttributes.Builder()
+                            .setUsage(android.os.VibrationAttributes.USAGE_ALARM)
+                            .build()
+                        vibrator?.vibrate(effect, attrs)
+                    } else {
+                        vibrator?.vibrate(effect)
+                    }
                 } else {
                     @Suppress("DEPRECATION")
-                    vibrator?.vibrate(pattern, 0)
+                    vibrator?.vibrate(timings, 0)
                 }
-                Log.d(TAG, "振动已启动")
+                Log.d(TAG, "振动已启动, 强度=$strength, 振幅=$amplitude")
             }
         } catch (e: Exception) {
             Log.e(TAG, "启动振动失败", e)
