@@ -21,6 +21,7 @@ import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.provider.Settings
 import android.util.Log
 import java.util.Timer
 import java.util.TimerTask
@@ -107,6 +108,12 @@ class RingtoneService : Service() {
                     startRinging()
                 }
             }
+            "popup_only" -> {
+                // 静默测试：只弹窗，不响铃不振动
+                Log.d(TAG, "静默弹窗测试，消息: $message")
+                currentMessage = message
+                launchAlarmActivity(message)
+            }
             "stop" -> {
                 Log.d(TAG, "手动停止响铃")
                 stopRinging()
@@ -169,59 +176,75 @@ class RingtoneService : Service() {
     private fun startRinging() {
         try {
             val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+            val prefs = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE)
+            val volumePercent = prefs.getInt(MainActivity.KEY_VOLUME, MainActivity.DEFAULT_VOLUME)
+            val vibrationEnabled = prefs.getBoolean(MainActivity.KEY_VIBRATION, MainActivity.DEFAULT_VIBRATION)
 
-            // 用 STREAM_ALARM 比 STREAM_RING 更可靠，静音模式下也能响
+            // 保存原始音量（用于响铃结束后恢复）
             savedAlarmVolume = audioManager.getStreamVolume(AudioManager.STREAM_ALARM)
             savedRingVolume = audioManager.getStreamVolume(AudioManager.STREAM_RING)
-            val maxAlarmVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
-            audioManager.setStreamVolume(AudioManager.STREAM_ALARM, maxAlarmVolume, 0)
-            Log.d(TAG, "闹钟音量: saved=$savedAlarmVolume, max=$maxAlarmVolume, 铃声saved=$savedRingVolume")
+            Log.d(TAG, "原始音量: alarm=$savedAlarmVolume, ring=$savedRingVolume, 设置音量=$volumePercent%")
 
-            // 请求音频焦点
-            requestAudioFocus(audioManager)
+            if (volumePercent > 0) {
+                // 按设置比例调整音量
+                val maxAlarmVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+                val targetVolume = (maxAlarmVolume * volumePercent / 100f).toInt().coerceIn(1, maxAlarmVolume)
+                audioManager.setStreamVolume(AudioManager.STREAM_ALARM, targetVolume, 0)
+                Log.d(TAG, "闹钟音量设为: $targetVolume / $maxAlarmVolume")
 
-            // 获取铃声 URI
-            val ringtoneUri =
-                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            Log.d(TAG, "铃声 URI: $ringtoneUri")
+                // 请求音频焦点
+                requestAudioFocus(audioManager)
 
-            if (ringtoneUri == null) {
-                Log.e(TAG, "无法获取铃声 URI，尝试兜底方案")
-                playFallbackAlarm()
-            } else {
-                // 先启动播放，再转前台（Android 14+ 要求 media 已在播放）
-                mediaPlayer = MediaPlayer().apply {
-                    setDataSource(applicationContext, ringtoneUri)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                        setAudioAttributes(
-                            AudioAttributes.Builder()
-                                .setUsage(AudioAttributes.USAGE_ALARM)
-                                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                                .build()
-                        )
-                    } else {
-                        @Suppress("DEPRECATION")
-                        setAudioStreamType(AudioManager.STREAM_ALARM)
-                    }
-                    isLooping = true
-                    prepare()
-                    start()
-                }
+                // 获取铃声 URI
+                val ringtoneUri =
+                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                        ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+                        ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                Log.d(TAG, "铃声 URI: $ringtoneUri")
 
-                if (mediaPlayer?.isPlaying == true) {
-                    Log.d(TAG, "MediaPlayer 播放成功 ✓")
-                } else {
-                    Log.e(TAG, "MediaPlayer start() 后未在播放，尝试兜底")
-                    mediaPlayer?.release()
-                    mediaPlayer = null
+                if (ringtoneUri == null) {
+                    Log.e(TAG, "无法获取铃声 URI，尝试兜底方案")
                     playFallbackAlarm()
+                } else {
+                    mediaPlayer = MediaPlayer().apply {
+                        setDataSource(applicationContext, ringtoneUri)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                            setAudioAttributes(
+                                AudioAttributes.Builder()
+                                    .setUsage(AudioAttributes.USAGE_ALARM)
+                                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                    .build()
+                            )
+                        } else {
+                            @Suppress("DEPRECATION")
+                            setAudioStreamType(AudioManager.STREAM_ALARM)
+                        }
+                        isLooping = true
+                        prepare()
+                        start()
+                    }
+
+                    if (mediaPlayer?.isPlaying == true) {
+                        Log.d(TAG, "MediaPlayer 播放成功 ✓")
+                    } else {
+                        Log.e(TAG, "MediaPlayer start() 后未在播放，尝试兜底")
+                        mediaPlayer?.release()
+                        mediaPlayer = null
+                        playFallbackAlarm()
+                    }
                 }
+            } else {
+                Log.d(TAG, "音量为 0，不播放声音")
             }
 
             acquireWakeLock()
-            startVibration()
+
+            if (vibrationEnabled) {
+                startVibration()
+            } else {
+                Log.d(TAG, "振动已关闭")
+            }
+
             isRinging = true
 
             // 弹出闹钟式全屏界面
@@ -239,7 +262,6 @@ class RingtoneService : Service() {
 
         } catch (e: Exception) {
             Log.e(TAG, "响铃失败: ${e.message}", e)
-            // 最终兜底：用 Ringtone API
             try {
                 playFallbackAlarm()
                 acquireWakeLock()
@@ -305,45 +327,163 @@ class RingtoneService : Service() {
     }
 
     private fun launchAlarmActivity(message: String) {
-        // 用全屏通知弹出 AlarmActivity，不受后台启动限制
-        try {
-            val alarmIntent = Intent(this, AlarmActivity::class.java)
-            alarmIntent.putExtra(AlarmActivity.EXTRA_MESSAGE, message)
-            alarmIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            val pendingIntent = PendingIntent.getActivity(
-                this, 1, alarmIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
+        // 用 WindowManager 覆盖层弹出提醒，和测试流程统一
+        // Android 12+ BAL 限制下，这是后台/锁屏场景唯一可靠方案
+        showOverlayPopup(message)
+    }
 
-            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                Notification.Builder(this, NOTIFICATION_CHANNEL_ID)
-            } else {
+    /**
+     * WindowManager 覆盖层弹窗 — 真实流程和测试共用
+     */
+    private fun showOverlayPopup(message: String) {
+        if (!Settings.canDrawOverlays(this)) {
+            Log.e("RingtoneService", "没有悬浮窗权限，降级为 Activity 启动")
+            launchAlarmActivityFallback(message)
+            return
+        }
+
+        val windowManager = getSystemService(WINDOW_SERVICE) as android.view.WindowManager
+        val density = resources.displayMetrics.density
+        fun dp(v: Int) = (v * density).toInt()
+
+        // 全屏透明背景
+        val overlay = android.widget.FrameLayout(this).apply {
+            setBackgroundColor(0x99000000.toInt())
+            isClickable = true
+            isFocusable = true
+        }
+
+        // 红色卡片
+        val card = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+            setBackgroundColor(0xFFD32F2F.toInt())
+            setPadding(dp(32), dp(16), dp(32), dp(32))
+            isClickable = true
+
+            // 下拉指示条
+            addView(android.view.View(this@RingtoneService).apply {
+                layoutParams = android.widget.LinearLayout.LayoutParams(dp(40), dp(5)).apply {
+                    bottomMargin = dp(16)
+                }
+                setBackgroundColor(0x80FFFFFF.toInt())
+            })
+
+            // 警告图标
+            addView(android.widget.TextView(this@RingtoneService).apply {
+                text = "⚠️"
+                textSize = 48f
+                gravity = android.view.Gravity.CENTER
+            })
+
+            // 标题
+            addView(android.widget.TextView(this@RingtoneService).apply {
+                text = "车辆监听提醒"
+                textSize = 22f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(0xFFFFFFFF.toInt())
+                gravity = android.view.Gravity.CENTER
+                setPadding(0, dp(8), 0, dp(8))
+            })
+
+            // 消息内容
+            addView(android.widget.TextView(this@RingtoneService).apply {
+                text = message
+                textSize = 16f
+                setTextColor(0xFFFFFFFF.toInt())
+                gravity = android.view.Gravity.CENTER
+                setPadding(0, dp(8), 0, dp(16))
+            })
+
+            // 关闭按钮
+            addView(android.widget.Button(this@RingtoneService).apply {
+                text = "关闭提醒"
+                textSize = 18f
+                setTextColor(0xFFD32F2F.toInt())
+                setBackgroundColor(0xFFFFFFFF.toInt())
+                minHeight = dp(56)
+                layoutParams = android.widget.LinearLayout.LayoutParams(dp(200), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(8)
+                }
+                setOnClickListener {
+                    stopRinging()
+                }
+            })
+
+            // 提示文字
+            addView(android.widget.TextView(this@RingtoneService).apply {
+                text = "点击背景区域可关闭 · 5 分钟后自动停止"
+                textSize = 12f
+                setTextColor(0xFFFFCDD2.toInt())
+                gravity = android.view.Gravity.CENTER
+                setPadding(0, dp(12), 0, 0)
+            })
+        }
+
+        val cardParams = android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = android.view.Gravity.BOTTOM
+            leftMargin = dp(16)
+            rightMargin = dp(16)
+            bottomMargin = dp(48)
+        }
+        overlay.addView(card, cardParams)
+
+        // 点击背景关闭
+        overlay.setOnClickListener {
+            stopRinging()
+        }
+
+        val params = android.view.WindowManager.LayoutParams(
+            android.view.WindowManager.LayoutParams.MATCH_PARENT,
+            android.view.WindowManager.LayoutParams.MATCH_PARENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else
                 @Suppress("DEPRECATION")
-                Notification.Builder(this)
-            }
-            val notification = builder
-                .setContentTitle("⚠️ 车辆监听提醒")
-                .setContentText(message)
-                .setSmallIcon(android.R.drawable.ic_dialog_alert)
-                .setFullScreenIntent(pendingIntent, true)
-                .setOngoing(true)
-                .setVisibility(Notification.VISIBILITY_PUBLIC)
-                .build()
+                android.view.WindowManager.LayoutParams.TYPE_PHONE,
+            android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                    android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                    android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            android.graphics.PixelFormat.TRANSLUCENT
+        )
 
-            val nm = getSystemService(NotificationManager::class.java)
-            nm.notify(NOTIFICATION_ID + 2, notification)
-            Log.d(TAG, "全屏通知已发送，AlarmActivity 应弹出")
+        try {
+            windowManager.addView(overlay, params)
+            overlayView = overlay
+            Log.d(TAG, "覆盖层已添加 ✓")
         } catch (e: Exception) {
-            Log.e(TAG, "全屏通知失败: ${e.message}")
-            // 兜底：直接启动
+            Log.e(TAG, "添加覆盖层失败: ${e.message}", e)
+            launchAlarmActivityFallback(message)
+        }
+    }
+
+    private var overlayView: android.view.View? = null
+
+    private fun removeOverlay() {
+        overlayView?.let {
             try {
-                val intent = Intent(this, AlarmActivity::class.java)
-                intent.putExtra(AlarmActivity.EXTRA_MESSAGE, message)
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                startActivity(intent)
-            } catch (e2: Exception) {
-                Log.e(TAG, "直接启动也失败: ${e2.message}")
-            }
+                val windowManager = getSystemService(WINDOW_SERVICE) as android.view.WindowManager
+                windowManager.removeView(it)
+            } catch (_: Exception) {}
+        }
+        overlayView = null
+    }
+
+    /**
+     * 降级方案：直接启动 Activity（有悬浮窗权限时不会走到这里）
+     */
+    private fun launchAlarmActivityFallback(message: String) {
+        try {
+            val intent = Intent(this, AlarmActivity::class.java)
+            intent.putExtra(AlarmActivity.EXTRA_MESSAGE, message)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "降级启动也失败: ${e.message}")
         }
     }
 
@@ -420,6 +560,7 @@ class RingtoneService : Service() {
     private fun stopRinging() {
         Log.d(TAG, "停止响铃")
         releaseMedia()
+        removeOverlay()
         isRinging = false
 
         try {
@@ -458,6 +599,7 @@ class RingtoneService : Service() {
             unregisterReceiver(stopReceiver)
         } catch (_: Exception) {}
         releaseMedia()
+        removeOverlay()
         // 服务被系统杀时 stopRinging 不会走，必须在此重置静态标志
         isRinging = false
     }
