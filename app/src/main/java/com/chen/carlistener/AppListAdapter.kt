@@ -8,11 +8,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.BaseAdapter
 import android.widget.TextView
-import net.sourceforge.pinyin4j.PinyinHelper
-import net.sourceforge.pinyin4j.format.HanyuPinyinOutputFormat
-import net.sourceforge.pinyin4j.format.HanyuPinyinToneType
-import net.sourceforge.pinyin4j.format.HanyuPinyinVCharType
-import net.sourceforge.pinyin4j.format.exception.BadHanyuPinyinOutputFormatCombination
+import com.github.promeg.pinyinhelper.Pinyin
 
 /**
  * 应用列表适配器 — 支持字母分组头（中文转拼音首字母）
@@ -27,25 +23,26 @@ class AppListAdapter(
         const val TYPE_HEADER = 1
         private const val TYPE_COUNT = 2
 
+        // 缓存首字母结果，避免重复计算
+        private val letterCache = mutableMapOf<String, Char>()
+
         fun getFirstLetter(text: String): Char {
+            return letterCache.getOrPut(text) {
+                computeFirstLetter(text)
+            }
+        }
+
+        private fun computeFirstLetter(text: String): Char {
             val first = text.firstOrNull() ?: return '#'
             if (first in 'A'..'Z') return first
             if (first in 'a'..'z') return first.uppercaseChar()
             if (first in '0'..'9') return '#'
 
-            // 中文用 Pinyin4j 转拼音首字母
-            try {
-                val format = HanyuPinyinOutputFormat().apply {
-                    toneType = HanyuPinyinToneType.WITHOUT_TONE
-                    vCharType = HanyuPinyinVCharType.WITH_V
-                }
-                val pinyinArray = PinyinHelper.toHanyuPinyinStringArray(first, format)
-                if (pinyinArray != null && pinyinArray.isNotEmpty()) {
-                    val c = pinyinArray[0][0].uppercaseChar()
-                    if (c in 'A'..'Z') return c
-                }
-            } catch (e: BadHanyuPinyinOutputFormatCombination) {
-                // 忽略异常，返回 '#'
+            // 中文用 TinyPinyin 转拼音首字母
+            val pinyin = Pinyin.toPinyin(first)
+            if (pinyin.isNotEmpty()) {
+                val c = pinyin[0].uppercaseChar()
+                if (c in 'A'..'Z') return c
             }
 
             return '#'

@@ -57,21 +57,22 @@ class NotificationMonitorService : NotificationListenerService() {
         // 不需要处理通知移除
     }
 
-    // 上次触发响铃的通知签名，用于去重
-    private var lastNotifySignature: String? = null
-    private var lastNotifyTime: Long = 0L
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        Log.e(TAG, "NotificationListenerService 被系统断开！尝试重连...")
+        // Android 7+ 可以请求重连
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            requestRebind(android.content.ComponentName(this, NotificationMonitorService::class.java))
+            Log.d(TAG, "已请求重连 NotificationListenerService")
+        }
+    }
+
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        Log.d(TAG, "NotificationListenerService 已连接 ✓")
+    }
 
     private fun triggerRingtone(message: String) {
-        // 5 秒内相同内容去重
-        val now = System.currentTimeMillis()
-        val signature = message.hashCode().toString()
-        if (signature == lastNotifySignature && now - lastNotifyTime < 5000L) {
-            Log.d(TAG, "重复通知，5 秒内已响过铃，跳过")
-            return
-        }
-        lastNotifySignature = signature
-        lastNotifyTime = now
-
         val intent = android.content.Intent(this, RingtoneService::class.java)
         intent.putExtra("action", "ring")
         intent.putExtra("message", message)

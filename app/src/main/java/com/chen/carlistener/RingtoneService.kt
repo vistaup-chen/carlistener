@@ -89,7 +89,7 @@ class RingtoneService : Service() {
                 Log.d(TAG, "开始响铃，消息: $message")
                 currentMessage = message
                 if (isRinging) {
-                    // 已在响铃：重置超时计时器，避免重叠播放
+                    // 已在响铃：只重置超时计时器，不重复弹窗
                     Log.d(TAG, "已在响铃中，重置超时计时器")
                     timer?.cancel()
                     timer = Timer().apply {

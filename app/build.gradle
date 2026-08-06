@@ -52,5 +52,5 @@ dependencies {
     implementation libs.androidx.core.ktx
     implementation libs.androidx.appcompat
     implementation libs.material
-    implementation libs.pinyin4j
+    implementation files('libs/tinypinyin-2.0.3.jar')
 }

@@ -592,7 +592,7 @@ class MainActivity : AppCompatActivity() {
             isClickable = true
             setOnClickListener {
                 val pos = adapter.getLetterPosition(letter[0])
-                if (pos >= 0) listView.smoothScrollToPosition(pos)
+                if (pos >= 0) listView.setSelection(pos)
             }
         }
     }
