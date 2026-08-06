@@ -161,7 +161,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="保存配置"
-            android:layout_marginTop="8dp" />
+            android:layout_marginTop="8dp"
+            android:backgroundTint="@color/save_button"
+            android:textColor="@color/save_button_text" />
 
         <Button
             android:id="@+id/testRingButton"
@@ -248,6 +250,57 @@
             android:background="#F0F0F0"
             android:textColor="#333333"
             android:padding="12dp" />
+
+        <!-- 最近响铃记录 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="8dp"
+            android:background="#FFF8E1">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:paddingTop="8dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="最近响铃"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#555555" />
+
+                <Button
+                    android:id="@+id/clearHistoryButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="清空"
+                    android:textSize="13sp"
+                    android:minWidth="64dp"
+                    android:minHeight="40dp"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/historyTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="无记录"
+                android:textSize="13sp"
+                android:textColor="#555555"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="12dp"
+                android:maxLines="10" />
+        </LinearLayout>
 
         <!-- 使用说明 -->
         <TextView

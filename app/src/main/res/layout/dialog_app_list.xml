@@ -29,6 +29,19 @@
             android:layout_toStartOf="@+id/letterSidebar"
             android:fastScrollEnabled="false" />
 
+        <!-- 空状态提示 -->
+        <TextView
+            android:id="@+id/emptyView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:gravity="center"
+            android:padding="24dp"
+            android:text="未找到应用"
+            android:textSize="16sp"
+            android:textColor="#999999"
+            android:visibility="gone" />
+
         <!-- A-Z 侧边栏 -->
         <LinearLayout
             android:id="@+id/letterSidebar"

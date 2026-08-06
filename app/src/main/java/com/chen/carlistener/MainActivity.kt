@@ -37,6 +37,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var volumeSeekBar: SeekBar
     private lateinit var volumeTextView: TextView
     private lateinit var vibrationStrengthSpinner: Spinner
+    private lateinit var historyTextView: TextView
+    private lateinit var clearHistoryButton: Button
     private lateinit var autoStartButton: Button
     private lateinit var batteryOptButton: Button
     private lateinit var notifSettingsButton: Button
@@ -79,8 +81,10 @@ class MainActivity : AppCompatActivity() {
         const val DEFAULT_NOTIFICATION_PACKAGE = "com.tmri.app.main"
         const val KEY_VOLUME = "ring_volume"
         const val KEY_VIBRATION_STRENGTH = "ring_vibration_strength"
+        const val KEY_HISTORY = "ring_history"
         const val DEFAULT_VOLUME = 100
         const val DEFAULT_VIBRATION_STRENGTH = 2 // 中（0=关 1=弱 2=中 3=强）
+        const val MAX_HISTORY = 20
         /** 测试 app 包名，强制监听但不在列表中展示 */
         const val NOTIFIER_PACKAGE = "com.chen.notifier"
     }
@@ -111,6 +115,14 @@ class MainActivity : AppCompatActivity() {
         volumeSeekBar = findViewById(R.id.volumeSeekBar)
         volumeTextView = findViewById(R.id.volumeTextView)
         vibrationStrengthSpinner = findViewById(R.id.vibrationStrengthSpinner)
+        historyTextView = findViewById(R.id.historyTextView)
+        clearHistoryButton = findViewById(R.id.clearHistoryButton)
+
+        clearHistoryButton.setOnClickListener {
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                .remove(KEY_HISTORY).apply()
+            updateHistoryDisplay()
+        }
 
         loadPreferences()
 
@@ -190,7 +202,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     override fun onFinish() {
                         testRingButton.isEnabled = true
-                        startRingtone("test")
+                        startRingtone("test", "【测试】手动测试响铃")
                         Toast.makeText(this@MainActivity, "测试响铃已触发（5分钟后自动停止）", Toast.LENGTH_LONG).show()
                     }
                 }.start()
@@ -210,6 +222,7 @@ class MainActivity : AppCompatActivity() {
         isRinging = RingtoneService.isRinging
         updateTestRingButton()
         updateStatus()
+        updateHistoryDisplay()
     }
 
     private fun loadPreferences() {
@@ -249,6 +262,68 @@ class MainActivity : AppCompatActivity() {
                     .putInt(KEY_VIBRATION_STRENGTH, position).apply()
             }
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+        }
+
+        // 关键字和号码即时保存
+        keywordEditText.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                val value = s.toString().trim().ifEmpty { DEFAULT_KEYWORDS }
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                    .putString(KEY_KEYWORDS, value).apply()
+            }
+        })
+        senderNumbersEditText.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                val value = s.toString().trim().ifEmpty { DEFAULT_SENDER_NUMBERS }
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                    .putString(KEY_SENDER_NUMBERS, value).apply()
+            }
+        })
+
+        // 加载历史记录
+        updateHistoryDisplay()
+    }
+
+    /**
+     * 添加响铃记录
+     */
+    fun addRingHistory(message: String) {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val history = mutableListOf<String>()
+        val raw = prefs.getString(KEY_HISTORY, "") ?: ""
+        if (raw.isNotEmpty()) {
+            history.addAll(raw.split("\n"))
+        }
+        // 添加时间戳前缀
+        val time = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+            .format(java.util.Date())
+        history.add(0, "$time $message")
+        // 只保留最近 N 条
+        while (history.size > MAX_HISTORY) history.removeAt(history.size - 1)
+        prefs.edit().putString(KEY_HISTORY, history.joinToString("\n")).apply()
+        updateHistoryDisplay()
+    }
+
+    /**
+     * 更新历史记录显示（带序号）
+     */
+    private fun updateHistoryDisplay() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val raw = prefs.getString(KEY_HISTORY, "") ?: ""
+        if (raw.isEmpty()) {
+            historyTextView.text = "无记录"
+        } else {
+            val lines = raw.split("\n")
+            val sb = StringBuilder()
+            for ((index, line) in lines.withIndex()) {
+                if (index > 0) sb.append("\n")
+                sb.append("${index + 1}. $line")
+            }
+            historyTextView.text = sb.toString()
         }
     }
 
@@ -522,10 +597,12 @@ class MainActivity : AppCompatActivity() {
         val searchEditText = dialogView.findViewById<EditText>(R.id.searchEditText)
         val listView = dialogView.findViewById<ListView>(R.id.appListView)
         val sidebar = dialogView.findViewById<LinearLayout>(R.id.letterSidebar)
+        val emptyView = dialogView.findViewById<TextView>(R.id.emptyView)
 
         val adapter = AppListAdapter(this, pm)
         adapter.setData(finalList, selectedSet)
         listView.adapter = adapter
+        listView.emptyView = emptyView
 
         // 点击切换选中状态
         listView.setOnItemClickListener { _, _, position, _ ->
@@ -639,9 +716,10 @@ class MainActivity : AppCompatActivity() {
         return flat?.contains(packageName) == true
     }
 
-    private fun startRingtone(action: String) {
+    private fun startRingtone(action: String, message: String = "") {
         val intent = Intent(this, RingtoneService::class.java)
         intent.putExtra("action", action)
+        if (message.isNotEmpty()) intent.putExtra("message", message)
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(intent)

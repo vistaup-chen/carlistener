@@ -242,6 +242,9 @@ class RingtoneService : Service() {
 
             isRinging = true
 
+            // 记录响铃历史
+            saveRingHistory(currentMessage)
+
             // 弹出闹钟式全屏界面
             launchAlarmActivity(currentMessage)
 
@@ -608,6 +611,24 @@ class RingtoneService : Service() {
             stopForeground(true)
         }
         stopSelf()
+    }
+
+    /**
+     * 保存响铃历史
+     */
+    private fun saveRingHistory(message: String) {
+        try {
+            val prefs = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE)
+            val history = mutableListOf<String>()
+            val raw = prefs.getString(MainActivity.KEY_HISTORY, "") ?: ""
+            if (raw.isNotEmpty()) history.addAll(raw.split("\n"))
+            val time = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+                .format(java.util.Date())
+            val msg = message.ifEmpty { "响铃" }
+            history.add(0, "$time $msg")
+            while (history.size > MainActivity.MAX_HISTORY) history.removeAt(history.size - 1)
+            prefs.edit().putString(MainActivity.KEY_HISTORY, history.joinToString("\n")).apply()
+        } catch (_: Exception) {}
     }
 
     override fun onDestroy() {
